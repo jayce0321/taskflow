@@ -338,30 +338,60 @@ function hideModal(id) {
   document.getElementById('overlay').classList.add('hidden');
 }
 
-/* ===== 캘린더 렌더링 (스팬 방식) ===== */
+/* ===== 캘린더 렌더링 (스팬 방식 v2) ===== */
 
-// 날짜 문자열 → Date 객체 (로컬 시간 기준)
-function parseDate(ds) {
-  const [y, m, d] = ds.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-// Date → 'YYYY-MM-DD'
+// Date → 'YYYY-MM-DD' (로컬 기준)
 function toDateStr(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
+
+// 태스크 표시 범위: startDate~deadline, 하나만 있으면 하루짜리
+function getTaskRange(t) {
+  const s = t.startDate || t.deadline;
+  const e = t.deadline   || t.startDate;
+  if (!s) return null;
+  return { start: s <= e ? s : e, end: s <= e ? e : s };
+}
+
+// findLastIndex polyfill (Safari 호환)
+function findLastIdx(arr, fn) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (fn(arr[i], i)) return i;
+  }
+  return -1;
+}
+
+// 레인 배치 (Greedy Interval Scheduling)
+// 입력: [{cs, ce, ...}], 출력: 각 항목에 lane 추가
+function assignLanes(items) {
+  const laneEnds = []; // laneEnds[i] = i번 레인의 마지막 ce
+  return items.map(item => {
+    let lane = laneEnds.findIndex(end => end < item.cs);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = item.ce;
+    return { ...item, lane };
+  });
+}
+
+const MAX_VISIBLE_LANES = 3; // 이 이상은 "+N개 더" 처리
+const LANE_H = 26;
+const DAY_H  = 32;
+const LANE_GAP = 2;
 
 function renderCalendar() {
-  const year = state.calYear;
-  const month = state.calMonth;
+  const year     = state.calYear;
+  const month    = state.calMonth;
   const todayStr = today();
 
   document.getElementById('calTitle').textContent = `${year}년 ${month + 1}월`;
 
-  // 달력 셀 배열 (42칸 = 6주)
-  const firstDay = new Date(year, month, 1);
-  const lastDay  = new Date(year, month + 1, 0);
-  const startOffset = firstDay.getDay();
+  /* ── 1. 42칸 날짜 배열 생성 ── */
+  const firstDay    = new Date(year, month, 1);
+  const lastDay     = new Date(year, month + 1, 0);
+  const startOffset = firstDay.getDay(); // 0=일
   const dates = [];
 
   for (let i = startOffset - 1; i >= 0; i--) {
@@ -373,165 +403,154 @@ function renderCalendar() {
     dates.push({ ds: toDateStr(dt), date: dt, thisMonth: true });
   }
   while (dates.length < 42) {
-    const d = new Date(year, month + 1, dates.length - startOffset - lastDay.getDate() + 1);
+    const extra = dates.length - startOffset - lastDay.getDate() + 1;
+    const d = new Date(year, month + 1, extra);
     dates.push({ ds: toDateStr(d), date: d, thisMonth: false });
   }
 
-  // 달력 범위
   const calStart = dates[0].ds;
   const calEnd   = dates[41].ds;
 
-  // 각 태스크의 표시 범위 계산
-  // startDate 없으면 deadline 하루짜리, deadline 없으면 startDate 하루짜리
-  function getTaskRange(t) {
-    const s = t.startDate || t.deadline;
-    const e = t.deadline || t.startDate;
-    if (!s) return null;
-    return { start: s, end: e };
-  }
+  /* ── 2. 달력 범위에 걸치는 태스크 필터 & 정렬 ── */
+  const visibleTasks = state.tasks
+    .filter(t => {
+      const r = getTaskRange(t);
+      if (!r) return false;
+      return r.end >= calStart && r.start <= calEnd;
+    })
+    .sort((a, b) => {
+      const ra = getTaskRange(a), rb = getTaskRange(b);
+      if (ra.start !== rb.start) return ra.start.localeCompare(rb.start);
+      return rb.end.localeCompare(ra.end); // 긴 것 먼저 (레인 효율)
+    });
 
-  // 달력에 표시할 태스크 (범위가 달력과 겹치는 것만)
-  const visibleTasks = state.tasks.filter(t => {
-    const r = getTaskRange(t);
-    if (!r) return false;
-    return r.end >= calStart && r.start <= calEnd;
-  });
-
-  // 주(row)별로 태스크 레이아웃 계산
-  // rows[0..5] = 각 주의 태스크 배치 { task, colStart(0-6), colSpan(1-7), lane, isStart, isEnd }
+  /* ── 3. 주(row)별 레이아웃 계산 ── */
   const weeks = [];
   for (let w = 0; w < 6; w++) {
     const rowDates = dates.slice(w * 7, w * 7 + 7);
     const rowStart = rowDates[0].ds;
     const rowEnd   = rowDates[6].ds;
 
-    // 이 주에 걸치는 태스크
-    const rowTasks = visibleTasks
-      .filter(t => {
-        const r = getTaskRange(t);
-        return r && r.end >= rowStart && r.start <= rowEnd;
-      })
-      .sort((a, b) => {
-        const ra = getTaskRange(a), rb = getTaskRange(b);
-        if (ra.start !== rb.start) return ra.start.localeCompare(rb.start);
-        return rb.end.localeCompare(ra.end); // 더 긴 것 먼저
-      });
-
-    // 레인 배치 (겹치지 않게)
-    const lanes = []; // lanes[i] = 해당 레인의 마지막 colEnd
-    const placements = rowTasks.map(t => {
+    // 이 주와 겹치는 태스크
+    const rowTasks = visibleTasks.filter(t => {
       const r = getTaskRange(t);
-      const colStart = Math.max(0, rowDates.findIndex(d => d.ds === r.start));
-      const rawStart = rowDates.findIndex(d => d.ds >= r.start);
-      const cs = rawStart < 0 ? 0 : rawStart;
-      const rawEnd = rowDates.findLastIndex(d => d.ds <= r.end);
-      const ce = rawEnd < 0 ? 6 : rawEnd;
-      const colSpan = ce - cs + 1;
+      return r && r.end >= rowStart && r.start <= rowEnd;
+    });
 
-      // 레인 할당
-      let lane = lanes.findIndex(laneEnd => laneEnd < cs);
-      if (lane === -1) { lane = lanes.length; }
-      lanes[lane] = ce;
-
+    // 칼럼 위치 계산
+    const items = rowTasks.map(t => {
+      const r  = getTaskRange(t);
+      const cs = rowDates.findIndex(d => d.ds >= r.start);
+      const ce = findLastIdx(rowDates, d => d.ds <= r.end);
       return {
-        task: t,
-        colStart: cs,
-        colSpan,
-        lane,
+        task:    t,
+        cs:      cs < 0 ? 0 : cs,
+        ce:      ce < 0 ? 6 : ce,
         isStart: r.start >= rowStart,
-        isEnd: r.end <= rowEnd,
+        isEnd:   r.end   <= rowEnd,
       };
     });
 
-    weeks.push({ rowDates, placements });
+    // 레인 배치
+    const placed = assignLanes(items);
+
+    // 최대 레인 수
+    const maxLane = placed.length > 0 ? Math.max(...placed.map(p => p.lane)) : -1;
+
+    // MAX_VISIBLE_LANES 초과분 분리
+    const visible = placed.filter(p => p.lane < MAX_VISIBLE_LANES);
+    const hidden  = placed.filter(p => p.lane >= MAX_VISIBLE_LANES);
+
+    // 날짜별 hidden 카운트 ("+N개 더" 표시용)
+    const hiddenByCol = Array(7).fill(0);
+    hidden.forEach(p => {
+      for (let c = p.cs; c <= p.ce; c++) hiddenByCol[c]++;
+    });
+
+    weeks.push({ rowDates, visible, hiddenByCol, maxLane });
   }
 
-  // HTML 생성
+  /* ── 4. HTML 생성 ── */
   const grid = document.getElementById('calGrid');
-  const LANE_H = 24; // px per lane
-  const DAY_H  = 36; // px for day number area
+  grid.innerHTML = weeks.map(({ rowDates, visible, hiddenByCol, maxLane }) => {
+    const displayedLanes = Math.min(maxLane + 1, MAX_VISIBLE_LANES);
+    const hasMore = hiddenByCol.some(n => n > 0);
+    const moreRowH = hasMore ? 18 : 0;
+    const rowH = DAY_H + displayedLanes * (LANE_H + LANE_GAP) + moreRowH + 8;
 
-  grid.innerHTML = weeks.map(({ rowDates, placements }) => {
-    const maxLane = placements.length > 0 ? Math.max(...placements.map(p => p.lane)) : -1;
-    const rowH = DAY_H + (maxLane + 1) * LANE_H + 8;
-
-    // 날짜 셀들
+    /* 날짜 셀 */
     const dayCells = rowDates.map(({ ds, date, thisMonth }) => {
-      const isToday_  = ds === todayStr;
       const dow = date.getDay();
-      const classes = [
+      const cls = [
         'cal-day-cell',
-        !thisMonth ? 'other-month' : '',
-        isToday_  ? 'today-cell' : '',
-        dow === 0 ? 'sunday' : '',
-        dow === 6 ? 'saturday' : '',
+        !thisMonth   ? 'other-month' : '',
+        ds === todayStr ? 'today-cell'  : '',
+        dow === 0    ? 'sunday'      : '',
+        dow === 6    ? 'saturday'    : '',
       ].filter(Boolean).join(' ');
-
-      return `<div class="${classes}" style="height:${rowH}px">
-        <div class="cal-day-num">${date.getDate()}</div>
-      </div>`;
+      return `<div class="${cls}"><div class="cal-day-num">${date.getDate()}</div></div>`;
     }).join('');
 
-    // 태스크 스팬 바들
-    const bars = placements.map(({ task: t, colStart, colSpan, lane, isStart, isEnd }) => {
-      const proj  = state.projects.find(p => p.id === t.projectId);
-      const color = proj ? proj.color : '#a29bfe';
+    /* 스팬 바 */
+    const bars = visible.map(({ task: t, cs, ce, lane, isStart, isEnd }) => {
+      const proj    = state.projects.find(p => p.id === t.projectId);
+      const color   = proj ? proj.color : '#a29bfe';
       const overdue = isOverdue(t);
       const done    = t.status === 'done';
+      const colSpan = ce - cs + 1;
 
-      const top  = DAY_H + lane * LANE_H;
-      const left = `calc(${colStart} * (100% / 7))`;
-      const width = `calc(${colSpan} * (100% / 7) - 4px)`;
+      const top   = DAY_H + lane * (LANE_H + LANE_GAP);
+      const leftP = (cs / 7 * 100).toFixed(3);
+      const wP    = (colSpan / 7 * 100).toFixed(3);
 
-      const borderR = isEnd   ? '6px' : '0';
-      const borderL = isStart ? '6px' : '0';
+      const rL = isStart ? '5px' : '0';
+      const rR = isEnd   ? '5px' : '0';
+      const bL = isStart ? '' : 'border-left:none;';
+      const bR = isEnd   ? '' : 'border-right:none;';
 
-      // 라벨: 시작칸이거나 첫 번째 칸에만 표시
-      const label = `
-        <span class="span-label">${t.title}</span>
-        ${isStart && t.startDate ? `<span class="span-date-tag">▶ ${t.startDate.slice(5)}</span>` : ''}
-        ${isEnd && t.deadline ? `<span class="span-date-tag end-tag">◀ ${t.deadline.slice(5)}</span>` : ''}
-      `;
+      const r = getTaskRange(t);
+      const startTag = isStart && t.startDate ? `<span class="span-tag">▶${t.startDate.slice(5)}</span>` : '';
+      const endTag   = isEnd   && t.deadline  ? `<span class="span-tag end-tag">◀${t.deadline.slice(5)}</span>` : '';
 
-      return `
-        <div class="cal-span-bar ${done ? 'bar-done' : ''} ${overdue ? 'bar-overdue' : ''}"
-          style="
-            top:${top}px;
-            left:${left};
-            width:${width};
-            background:${color}${done ? '33' : '22'};
-            border:1.5px solid ${color}${overdue ? ';outline:1.5px solid #ff4757' : ''};
-            color:${color};
-            border-radius:${borderL} ${borderR} ${borderR} ${borderL};
-            ${!isStart ? 'border-left:none;' : ''}
-            ${!isEnd   ? 'border-right:none;' : ''}
-          "
-          onclick="openEditTask('${t.id}')"
-          title="${t.title}${t.startDate ? ' | 시작: ' + t.startDate : ''}${t.deadline ? ' | 마감: ' + t.deadline : ''}"
-        >${isStart ? label : ''}</div>`;
+      return `<div class="cal-span-bar${done ? ' bar-done' : ''}${overdue ? ' bar-overdue' : ''}"
+        style="top:${top}px;left:${leftP}%;width:calc(${wP}% - 3px);
+               background:${color}${done ? '30' : '1e'};
+               border:1.5px solid ${color}88;color:${color};
+               border-radius:${rL} ${rR} ${rR} ${rL};${bL}${bR}
+               ${overdue ? 'box-shadow:0 0 0 1.5px #ff4757 inset;' : ''}"
+        onclick="openEditTask('${t.id}')"
+        title="${t.title}${t.startDate?' | 시작:'+t.startDate:''}${t.deadline?' | 마감:'+t.deadline:''}"
+      >${isStart ? `<span class="span-label">${t.title}</span>${startTag}${endTag}` : ''}</div>`;
     }).join('');
 
-    return `
-      <div class="cal-week-row" style="position:relative;height:${rowH}px">
-        <div class="cal-day-row">${dayCells}</div>
-        ${bars}
-      </div>`;
+    /* "+N개 더" 셀 */
+    const moreRow = hasMore ? `<div class="cal-more-row">` +
+      rowDates.map((_, i) => hiddenByCol[i] > 0
+        ? `<div class="cal-more-cell">+${hiddenByCol[i]}개 더</div>`
+        : `<div class="cal-more-cell"></div>`
+      ).join('') + `</div>` : '';
+
+    return `<div class="cal-week-row" style="height:${rowH}px">
+      <div class="cal-day-row">${dayCells}</div>
+      ${bars}
+      ${moreRow}
+    </div>`;
   }).join('');
 
-  // 범례
+  /* ── 5. 범례 ── */
   const legend = document.getElementById('calLegend');
   legend.innerHTML = state.projects.map(p =>
     `<div class="legend-item">
-      <div class="legend-dot" style="background:${p.color}"></div>
-      <span>${p.name}</span>
-    </div>`
+       <div class="legend-dot" style="background:${p.color}"></div>
+       <span>${p.name}</span>
+     </div>`
   ).join('') + `
     <div class="legend-item">
-      <div class="legend-dot" style="outline:2px solid #ff4757;background:#ff475722"></div>
+      <div class="legend-dot" style="background:#ff475720;border:1.5px solid #ff4757"></div>
       <span>기한 초과</span>
     </div>
-    <div class="legend-item" style="gap:8px">
-      <span style="font-size:11px">▶ 시작일 &nbsp; ◀ 마감일</span>
+    <div class="legend-item">
+      <span style="font-size:11px;color:#888">▶ 시작일 &nbsp;◀ 마감일</span>
     </div>`;
 }
 

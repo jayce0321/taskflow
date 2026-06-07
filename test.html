@@ -257,6 +257,106 @@ test('42칸 캘린더 그리드가 생성된다', () => {
   assertEqual(count, 42);
 });
 
+// ===== 레인 배치 알고리즘 =====
+function assignLanes(items) {
+  const laneEnds = [];
+  return items.map(item => {
+    let lane = laneEnds.findIndex(end => end < item.cs);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = item.ce;
+    return { ...item, lane };
+  });
+}
+
+function findLastIdx(arr, fn) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (fn(arr[i], i)) return i;
+  }
+  return -1;
+}
+
+group('레인 배치 — assignLanes()');
+test('겹치지 않는 태스크는 같은 레인에 배치된다', () => {
+  const items = [
+    { cs: 0, ce: 1 },
+    { cs: 2, ce: 4 },
+    { cs: 5, ce: 6 },
+  ];
+  const result = assignLanes(items);
+  assertEqual(result[0].lane, 0);
+  assertEqual(result[1].lane, 0);
+  assertEqual(result[2].lane, 0);
+});
+test('겹치는 태스크는 다른 레인에 배치된다', () => {
+  const items = [
+    { cs: 0, ce: 3 },
+    { cs: 1, ce: 5 }, // 겹침 → 레인 1
+    { cs: 2, ce: 6 }, // 겹침 → 레인 2
+  ];
+  const result = assignLanes(items);
+  assertEqual(result[0].lane, 0);
+  assertEqual(result[1].lane, 1);
+  assertEqual(result[2].lane, 2);
+});
+test('끝난 후 시작하는 태스크는 빈 레인 재사용', () => {
+  const items = [
+    { cs: 0, ce: 2 }, // 레인 0
+    { cs: 1, ce: 4 }, // 레인 1 (겹침)
+    { cs: 3, ce: 6 }, // 레인 0 재사용 (0번 레인 ce=2 < cs=3)
+  ];
+  const result = assignLanes(items);
+  assertEqual(result[2].lane, 0);
+});
+test('단일 태스크는 레인 0에 배치된다', () => {
+  const result = assignLanes([{ cs: 0, ce: 6 }]);
+  assertEqual(result[0].lane, 0);
+});
+test('7개 모두 겹치면 레인 0~6에 각각 배치된다', () => {
+  const items = Array.from({ length: 7 }, (_, i) => ({ cs: 0, ce: 6 }));
+  const result = assignLanes(items);
+  result.forEach((r, i) => assertEqual(r.lane, i));
+});
+
+group('레인 배치 — findLastIdx() 폴리필');
+test('마지막 일치 인덱스를 반환한다', () => {
+  const arr = ['2026-06-01','2026-06-03','2026-06-05','2026-06-07'];
+  const idx = findLastIdx(arr, d => d <= '2026-06-05');
+  assertEqual(idx, 2);
+});
+test('일치 없으면 -1 반환', () => {
+  const arr = ['2026-06-10','2026-06-11'];
+  const idx = findLastIdx(arr, d => d <= '2026-06-05');
+  assertEqual(idx, -1);
+});
+
+group('MAX_VISIBLE_LANES 초과 처리');
+test('레인 3 이상은 hidden으로 분리된다', () => {
+  const MAX = 3;
+  const placed = [
+    { lane: 0 }, { lane: 1 }, { lane: 2 },
+    { lane: 3 }, { lane: 4 },
+  ];
+  const visible = placed.filter(p => p.lane < MAX);
+  const hidden  = placed.filter(p => p.lane >= MAX);
+  assertEqual(visible.length, 3);
+  assertEqual(hidden.length, 2);
+});
+test('hidden 태스크 날짜별 카운트가 정확하다', () => {
+  const hidden = [
+    { cs: 0, ce: 2 },
+    { cs: 1, ce: 4 },
+  ];
+  const hiddenByCol = Array(7).fill(0);
+  hidden.forEach(p => {
+    for (let c = p.cs; c <= p.ce; c++) hiddenByCol[c]++;
+  });
+  assertEqual(hiddenByCol[0], 1); // 첫 번째 태스크만
+  assertEqual(hiddenByCol[1], 2); // 두 태스크 겹침
+  assertEqual(hiddenByCol[2], 2);
+  assertEqual(hiddenByCol[3], 1); // 두 번째 태스크만
+  assertEqual(hiddenByCol[5], 0); // 없음
+});
+
 // ===== 요약 =====
 const summary = document.getElementById('summary');
 const total = passed + failed;
