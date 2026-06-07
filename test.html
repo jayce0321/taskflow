@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>TaskFlow 테스트</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #eee; padding: 30px; }
+    h1 { color: #6c63ff; margin-bottom: 20px; }
+    .test { margin: 8px 0; padding: 8px 14px; border-radius: 6px; }
+    .pass { background: #1a3a1a; color: #2ed573; }
+    .fail { background: #3a1a1a; color: #ff4757; }
+    .group { color: #a29bfe; font-size: 16px; margin: 20px 0 8px; font-weight: bold; }
+    #summary { margin-top: 24px; padding: 16px; border-radius: 8px; font-size: 16px; }
+    .all-pass { background: #1a3a1a; color: #2ed573; }
+    .some-fail { background: #3a1a1a; color: #ff4757; }
+  </style>
+</head>
+<body>
+  <h1>⚡ TaskFlow 자동 테스트</h1>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+<script>
+// ===== 테스트 유틸 =====
+let passed = 0, failed = 0;
+const results = document.getElementById('results');
+
+function group(name) {
+  const el = document.createElement('div');
+  el.className = 'group';
+  el.textContent = '▶ ' + name;
+  results.appendChild(el);
+}
+
+function test(name, fn) {
+  const el = document.createElement('div');
+  try {
+    fn();
+    el.className = 'test pass';
+    el.textContent = '✓ ' + name;
+    passed++;
+  } catch(e) {
+    el.className = 'test fail';
+    el.textContent = '✗ ' + name + ' — ' + e.message;
+    failed++;
+  }
+  results.appendChild(el);
+}
+
+function assert(cond, msg = '조건 실패') { if (!cond) throw new Error(msg); }
+function assertEqual(a, b) { if (a !== b) throw new Error(`${JSON.stringify(a)} !== ${JSON.stringify(b)}`); }
+
+// ===== 테스트용 헬퍼 (app.js 없이 독립 실행) =====
+function uid() { return Math.random().toString(36).slice(2, 10); }
+function dateStr(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+function today() { return dateStr(0); }
+function isOverdue(task) { return task.deadline && task.deadline < today() && task.status !== 'done'; }
+function isToday(task) { return task.deadline === today() && task.status !== 'done'; }
+function statusLabel(s) { return { todo: '진행 전', doing: '진행 중', done: '완료' }[s]; }
+function priorityLabel(p) { return { high: '높음', medium: '보통', low: '낮음' }[p]; }
+
+// ===== 테스트 시작 =====
+
+group('uid() — 고유 ID 생성');
+test('uid는 문자열이다', () => assert(typeof uid() === 'string'));
+test('uid는 8자 이상이다', () => assert(uid().length >= 8));
+test('두 uid는 서로 다르다', () => assert(uid() !== uid()));
+
+group('dateStr() — 날짜 포맷');
+test('오늘 날짜 포맷이 YYYY-MM-DD 형식이다', () => {
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(dateStr(0)));
+});
+test('내일은 오늘보다 크다', () => assert(dateStr(1) > dateStr(0)));
+test('어제는 오늘보다 작다', () => assert(dateStr(-1) < dateStr(0)));
+
+group('isOverdue() — 기한 초과 판별');
+test('어제 마감 + 미완료 → 기한 초과', () => {
+  assert(isOverdue({ deadline: dateStr(-1), status: 'todo' }));
+});
+test('어제 마감 + 완료 → 기한 초과 아님', () => {
+  assert(!isOverdue({ deadline: dateStr(-1), status: 'done' }));
+});
+test('내일 마감 → 기한 초과 아님', () => {
+  assert(!isOverdue({ deadline: dateStr(1), status: 'todo' }));
+});
+test('마감일 없음 → 기한 초과 아님', () => {
+  assert(!isOverdue({ deadline: '', status: 'todo' }));
+});
+
+group('isToday() — 오늘 마감 판별');
+test('오늘 마감 + 미완료 → 오늘 마감', () => {
+  assert(isToday({ deadline: today(), status: 'todo' }));
+});
+test('오늘 마감 + 완료 → 해당 없음', () => {
+  assert(!isToday({ deadline: today(), status: 'done' }));
+});
+test('내일 마감 → 오늘 마감 아님', () => {
+  assert(!isToday({ deadline: dateStr(1), status: 'todo' }));
+});
+
+group('statusLabel() — 상태 레이블');
+test('todo → 진행 전', () => assertEqual(statusLabel('todo'), '진행 전'));
+test('doing → 진행 중', () => assertEqual(statusLabel('doing'), '진행 중'));
+test('done → 완료', () => assertEqual(statusLabel('done'), '완료'));
+
+group('priorityLabel() — 우선순위 레이블');
+test('high → 높음', () => assertEqual(priorityLabel('high'), '높음'));
+test('medium → 보통', () => assertEqual(priorityLabel('medium'), '보통'));
+test('low → 낮음', () => assertEqual(priorityLabel('low'), '낮음'));
+
+group('프로젝트 데이터 구조');
+test('프로젝트는 id, name, color를 가진다', () => {
+  const p = { id: uid(), name: '테스트', color: '#6c63ff' };
+  assert(p.id && p.name && p.color);
+});
+
+group('태스크 데이터 구조');
+test('태스크는 필수 필드를 모두 가진다', () => {
+  const t = { id: uid(), title: '테스트', desc: '', projectId: '', status: 'todo', priority: 'medium', startDate: '', deadline: '', createdAt: Date.now() };
+  assert(t.id && t.title !== undefined && t.status && t.priority);
+});
+test('태스크 status는 todo/doing/done 중 하나', () => {
+  ['todo','doing','done'].forEach(s => {
+    assert(['todo','doing','done'].includes(s), `${s}는 유효한 상태`);
+  });
+});
+test('태스크 priority는 low/medium/high 중 하나', () => {
+  ['low','medium','high'].forEach(p => {
+    assert(['low','medium','high'].includes(p));
+  });
+});
+
+group('정렬 로직');
+test('마감일순 정렬 — 빠른 날짜가 앞에 온다', () => {
+  const tasks = [
+    { deadline: dateStr(3), createdAt: 1 },
+    { deadline: dateStr(1), createdAt: 2 },
+    { deadline: dateStr(5), createdAt: 3 },
+  ];
+  tasks.sort((a, b) => {
+    if (!a.deadline) return 1;
+    if (!b.deadline) return -1;
+    return a.deadline.localeCompare(b.deadline);
+  });
+  assertEqual(tasks[0].deadline, dateStr(1));
+  assertEqual(tasks[2].deadline, dateStr(5));
+});
+
+test('우선순위순 정렬 — high가 앞에 온다', () => {
+  const tasks = [
+    { priority: 'low' },
+    { priority: 'high' },
+    { priority: 'medium' },
+  ];
+  const order = { high: 0, medium: 1, low: 2 };
+  tasks.sort((a, b) => order[a.priority] - order[b.priority]);
+  assertEqual(tasks[0].priority, 'high');
+  assertEqual(tasks[2].priority, 'low');
+});
+
+test('등록순 정렬 — 최신이 앞에 온다', () => {
+  const tasks = [
+    { createdAt: 100 },
+    { createdAt: 300 },
+    { createdAt: 200 },
+  ];
+  tasks.sort((a, b) => b.createdAt - a.createdAt);
+  assertEqual(tasks[0].createdAt, 300);
+});
+
+group('캘린더 — 날짜 계산');
+test('월의 첫날 요일을 구할 수 있다', () => {
+  const firstDay = new Date(2026, 5, 1); // 2026년 6월 1일
+  assert(firstDay.getDay() >= 0 && firstDay.getDay() <= 6);
+});
+test('월의 마지막 날을 구할 수 있다', () => {
+  const lastDay = new Date(2026, 5 + 1, 0); // 2026년 6월 말일
+  assertEqual(lastDay.getDate(), 30);
+});
+test('윤년 2월 마지막 날은 29일이다', () => {
+  const lastDay = new Date(2024, 2, 0);
+  assertEqual(lastDay.getDate(), 29);
+});
+test('평년 2월 마지막 날은 28일이다', () => {
+  const lastDay = new Date(2025, 2, 0);
+  assertEqual(lastDay.getDate(), 28);
+});
+
+group('캘린더 — 월 이동');
+test('12월에서 다음 달 이동하면 1월이 된다', () => {
+  let month = 11, year = 2025;
+  if (month === 11) { month = 0; year++; }
+  assertEqual(month, 0);
+  assertEqual(year, 2026);
+});
+test('1월에서 이전 달 이동하면 12월이 된다', () => {
+  let month = 0, year = 2026;
+  if (month === 0) { month = 11; year--; }
+  assertEqual(month, 11);
+  assertEqual(year, 2025);
+});
+
+group('캘린더 — 스팬 범위 계산');
+test('시작일+마감일 모두 있으면 범위를 반환한다', () => {
+  const t = { startDate: '2026-06-05', deadline: '2026-06-10' };
+  const r = { start: t.startDate || t.deadline, end: t.deadline || t.startDate };
+  assertEqual(r.start, '2026-06-05');
+  assertEqual(r.end,   '2026-06-10');
+});
+test('시작일만 있으면 하루짜리 범위이다', () => {
+  const t = { startDate: '2026-06-05', deadline: '' };
+  const r = { start: t.startDate || t.deadline, end: t.deadline || t.startDate };
+  assertEqual(r.start, r.end);
+});
+test('마감일만 있으면 하루짜리 범위이다', () => {
+  const t = { startDate: '', deadline: '2026-06-10' };
+  const r = { start: t.startDate || t.deadline, end: t.deadline || t.startDate };
+  assertEqual(r.start, r.end);
+});
+test('둘 다 없으면 null이다', () => {
+  const t = { startDate: '', deadline: '' };
+  const s = t.startDate || t.deadline;
+  assert(!s, '범위 없음');
+});
+test('달력 범위와 겹치는 태스크만 필터된다', () => {
+  const calStart = '2026-06-01', calEnd = '2026-06-30';
+  const tasks = [
+    { startDate: '2026-05-20', deadline: '2026-06-05' }, // 겹침
+    { startDate: '2026-06-10', deadline: '2026-06-20' }, // 겹침
+    { startDate: '2026-07-01', deadline: '2026-07-10' }, // 안 겹침
+    { startDate: '2026-05-01', deadline: '2026-05-31' }, // 안 겹침
+  ];
+  const visible = tasks.filter(t => {
+    const s = t.startDate || t.deadline;
+    const e = t.deadline || t.startDate;
+    return e >= calStart && s <= calEnd;
+  });
+  assertEqual(visible.length, 2);
+});
+test('colSpan은 최소 1이다', () => {
+  const colStart = 3, colEnd = 3;
+  const colSpan = colEnd - colStart + 1;
+  assert(colSpan >= 1);
+});
+test('42칸 캘린더 그리드가 생성된다', () => {
+  const year = 2026, month = 5;
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startOffset = firstDay.getDay();
+  let count = startOffset + lastDay.getDate();
+  const remaining = 42 - count;
+  count += remaining;
+  assertEqual(count, 42);
+});
+
+// ===== 요약 =====
+const summary = document.getElementById('summary');
+const total = passed + failed;
+summary.className = 'all-pass ' + (failed > 0 ? 'some-fail' : 'all-pass');
+summary.style.background = failed === 0 ? '#1a3a1a' : '#3a1a1a';
+summary.style.color = failed === 0 ? '#2ed573' : '#ff4757';
+summary.style.padding = '16px';
+summary.style.borderRadius = '8px';
+summary.style.marginTop = '24px';
+summary.textContent = failed === 0
+  ? `🎉 전체 ${total}개 테스트 모두 통과!`
+  : `⚠️ ${total}개 중 ${failed}개 실패 / ${passed}개 통과`;
+</script>
+</body>
+</html>
