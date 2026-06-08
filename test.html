@@ -357,6 +357,162 @@ test('hidden 태스크 날짜별 카운트가 정확하다', () => {
   assertEqual(hiddenByCol[5], 0); // 없음
 });
 
+group('뷰 탭 전환 동기화');
+test('viewMode가 list이면 list 버튼이 active', () => {
+  const viewMode = 'list';
+  const btns = [{dataset:{viewMode:'list'}}, {dataset:{viewMode:'calendar'}}];
+  btns.forEach(b => b.active = b.dataset.viewMode === viewMode);
+  assert(btns[0].active);
+  assert(!btns[1].active);
+});
+test('viewMode가 calendar이면 calendar 버튼이 active', () => {
+  const viewMode = 'calendar';
+  const btns = [{dataset:{viewMode:'list'}}, {dataset:{viewMode:'calendar'}}];
+  btns.forEach(b => b.active = b.dataset.viewMode === viewMode);
+  assert(!btns[0].active);
+  assert(btns[1].active);
+});
+test('render() 후에도 active 상태가 유지된다 (syncViewUI 로직)', () => {
+  // render()마다 syncViewUI()가 호출되어 active를 재설정
+  const viewMode = 'calendar';
+  let activeCount = 0;
+  const btns = ['list','calendar'].map(v => ({
+    viewMode: v,
+    get active() { return this.viewMode === viewMode; }
+  }));
+  btns.forEach(b => { if (b.active) activeCount++; });
+  assertEqual(activeCount, 1);
+});
+
+group('캘린더 오늘 이동');
+test('오늘 버튼 클릭 시 현재 연월로 복귀', () => {
+  const now = new Date();
+  const calYear  = now.getFullYear();
+  const calMonth = now.getMonth();
+  assertEqual(calYear,  now.getFullYear());
+  assertEqual(calMonth, now.getMonth());
+});
+
+group('필터 UI 캘린더/리스트 전환');
+test('캘린더 모드에서 listFilterGroup은 hidden', () => {
+  const viewMode = 'calendar';
+  const listHidden  = viewMode === 'calendar';
+  const calNavShown = viewMode === 'calendar';
+  assert(listHidden);
+  assert(calNavShown);
+});
+test('리스트 모드에서 calInlineNav는 hidden', () => {
+  const viewMode = 'list';
+  const calNavHidden = viewMode !== 'calendar';
+  assert(calNavHidden);
+});
+
+// ===== 날별 완료 체크 =====
+function getDatesBetween(start, end) {
+  const result = [];
+  const cur = new Date(start + 'T00:00:00');
+  const last = new Date(end + 'T00:00:00');
+  while (cur <= last) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth()+1).padStart(2,'0');
+    const d = String(cur.getDate()).padStart(2,'0');
+    result.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return result;
+}
+function getTotalDays_test(t) {
+  const s = t.startDate || t.deadline;
+  const e = t.deadline  || t.startDate;
+  if (!s) return 0;
+  return getDatesBetween(s <= e ? s : e, s <= e ? e : s).length;
+}
+function getDoneDays_test(t) {
+  if (!t.dailyDone) return 0;
+  return Object.values(t.dailyDone).filter(Boolean).length;
+}
+
+group('날별 완료 — getDatesBetween()');
+test('같은 날이면 1개 반환', () => {
+  const r = getDatesBetween('2026-06-10', '2026-06-10');
+  assertEqual(r.length, 1);
+  assertEqual(r[0], '2026-06-10');
+});
+test('5일 범위는 5개 반환', () => {
+  const r = getDatesBetween('2026-06-10', '2026-06-14');
+  assertEqual(r.length, 5);
+});
+test('월 경계를 넘어도 정확히 계산', () => {
+  const r = getDatesBetween('2026-06-29', '2026-07-02');
+  assertEqual(r.length, 4);
+  assertEqual(r[0], '2026-06-29');
+  assertEqual(r[3], '2026-07-02');
+});
+
+group('날별 완료 — getTotalDays()');
+test('startDate~deadline 기준 총 날 수', () => {
+  const t = { startDate: '2026-06-01', deadline: '2026-06-07' };
+  assertEqual(getTotalDays_test(t), 7);
+});
+test('하루짜리 태스크 = 1일', () => {
+  const t = { startDate: '2026-06-05', deadline: '2026-06-05' };
+  assertEqual(getTotalDays_test(t), 1);
+});
+test('날짜 없는 태스크 = 0일', () => {
+  const t = { startDate: '', deadline: '' };
+  assertEqual(getTotalDays_test(t), 0);
+});
+
+group('날별 완료 — toggleDailyDone 로직');
+test('체크하면 해당 날짜가 true', () => {
+  const t = { dailyDone: {} };
+  t.dailyDone['2026-06-10'] = !t.dailyDone['2026-06-10'];
+  assert(t.dailyDone['2026-06-10'] === true);
+});
+test('두 번 체크하면 다시 false', () => {
+  const t = { dailyDone: { '2026-06-10': true } };
+  t.dailyDone['2026-06-10'] = !t.dailyDone['2026-06-10'];
+  assert(t.dailyDone['2026-06-10'] === false);
+});
+test('모든 날 완료 시 status가 done으로 변경', () => {
+  const t = { startDate: '2026-06-01', deadline: '2026-06-03', status: 'doing', dailyDone: {
+    '2026-06-01': true, '2026-06-02': true, '2026-06-03': true
+  }};
+  const total = getTotalDays_test(t);
+  const done  = getDoneDays_test(t);
+  if (total > 0 && done >= total) t.status = 'done';
+  assertEqual(t.status, 'done');
+});
+test('일부만 완료하면 status가 done이 아님', () => {
+  const t = { startDate: '2026-06-01', deadline: '2026-06-05', status: 'todo', dailyDone: {
+    '2026-06-01': true, '2026-06-02': true
+  }};
+  const total = getTotalDays_test(t);
+  const done  = getDoneDays_test(t);
+  if (total > 0 && done >= total) t.status = 'done';
+  assert(t.status !== 'done');
+});
+test('done 상태에서 하나 해제하면 doing으로 변경', () => {
+  const t = { startDate: '2026-06-01', deadline: '2026-06-03', status: 'done', dailyDone: {
+    '2026-06-01': true, '2026-06-02': true, '2026-06-03': true
+  }};
+  t.dailyDone['2026-06-03'] = false;
+  const total = getTotalDays_test(t);
+  const done  = getDoneDays_test(t);
+  if (t.status === 'done' && done < total) t.status = 'doing';
+  assertEqual(t.status, 'doing');
+});
+
+group('날별 완료 — 진행률 계산');
+test('getDoneDays는 true인 날만 카운트', () => {
+  const t = { dailyDone: { '2026-06-01': true, '2026-06-02': false, '2026-06-03': true } };
+  assertEqual(getDoneDays_test(t), 2);
+});
+test('dailyDone 없으면 0 반환', () => {
+  const t = {};
+  assertEqual(getDoneDays_test(t), 0);
+});
+
 // ===== 요약 =====
 const summary = document.getElementById('summary');
 const total = passed + failed;

@@ -99,17 +99,29 @@ function getVisibleTasks() {
 function render() {
   renderSidebar();
   renderStats();
+  syncViewUI();
   if (state.viewMode === 'calendar') {
     document.getElementById('taskBoard').classList.add('hidden');
     document.getElementById('calendarView').classList.remove('hidden');
+    document.getElementById('listFilterGroup').classList.add('hidden');
+    document.getElementById('calInlineNav').classList.remove('hidden');
     document.getElementById('sortSelect').style.display = 'none';
     renderCalendar();
   } else {
     document.getElementById('taskBoard').classList.remove('hidden');
     document.getElementById('calendarView').classList.add('hidden');
+    document.getElementById('listFilterGroup').classList.remove('hidden');
+    document.getElementById('calInlineNav').classList.add('hidden');
     document.getElementById('sortSelect').style.display = '';
     renderBoard();
   }
+}
+
+// 뷰 탭 버튼 active 상태 동기화 (render 호출마다)
+function syncViewUI() {
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.viewMode === state.viewMode);
+  });
 }
 
 function renderSidebar() {
@@ -377,16 +389,67 @@ function assignLanes(items) {
 }
 
 const MAX_VISIBLE_LANES = 3; // 이 이상은 "+N개 더" 처리
-const LANE_H = 26;
-const DAY_H  = 32;
-const LANE_GAP = 2;
+const LANE_H   = 36;   // 체크박스 포함 높이
+const DAY_H    = 32;
+const LANE_GAP = 3;
+
+/* ===== 날별 완료 체크 ===== */
+
+// 시작~종료 사이의 모든 날짜 배열 반환
+function getDatesBetween(start, end) {
+  const result = [];
+  const cur = new Date(start + 'T00:00:00');
+  const last = new Date(end   + 'T00:00:00');
+  while (cur <= last) {
+    result.push(toDateStr(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return result;
+}
+
+// 태스크의 전체 기간 날 수
+function getTotalDays(t) {
+  const r = getTaskRange(t);
+  if (!r) return 0;
+  return getDatesBetween(r.start, r.end).length;
+}
+
+// 완료된 날 수
+function getDoneDays(t) {
+  if (!t.dailyDone) return 0;
+  return Object.values(t.dailyDone).filter(Boolean).length;
+}
+
+// 날별 완료 토글
+function toggleDailyDone(taskId, ds, e) {
+  e.stopPropagation();
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  if (!task.dailyDone) task.dailyDone = {};
+  task.dailyDone[ds] = !task.dailyDone[ds];
+
+  // 전체 기간 날 수와 완료 날 수 비교 → 자동 상태 전환
+  const total = getTotalDays(task);
+  const done  = getDoneDays(task);
+  if (total > 0 && done >= total) {
+    task.status = 'done';
+  } else if (task.status === 'done' && done < total) {
+    task.status = 'doing';
+  }
+
+  save();
+  render();
+}
 
 function renderCalendar() {
   const year     = state.calYear;
   const month    = state.calMonth;
   const todayStr = today();
 
-  document.getElementById('calTitle').textContent = `${year}년 ${month + 1}월`;
+  const titleText = `${year}년 ${month + 1}월`;
+  // 인라인 nav 타이틀 업데이트
+  const t2 = document.getElementById('calTitle2');
+  if (t2) t2.textContent = titleText;
 
   /* ── 1. 42칸 날짜 배열 생성 ── */
   const firstDay    = new Date(year, month, 1);
@@ -491,36 +554,73 @@ function renderCalendar() {
       return `<div class="${cls}"><div class="cal-day-num">${date.getDate()}</div></div>`;
     }).join('');
 
-    /* 스팬 바 */
+    /* 스팬 바 + 날별 체크박스 */
     const bars = visible.map(({ task: t, cs, ce, lane, isStart, isEnd }) => {
-      const proj    = state.projects.find(p => p.id === t.projectId);
-      const color   = proj ? proj.color : '#a29bfe';
-      const overdue = isOverdue(t);
-      const done    = t.status === 'done';
-      const colSpan = ce - cs + 1;
+      const proj      = state.projects.find(p => p.id === t.projectId);
+      const color     = proj ? proj.color : '#a29bfe';
+      const overdue   = isOverdue(t);
+      const done      = t.status === 'done';
+      const colSpan   = ce - cs + 1;
+      const isMulti   = colSpan > 1 || (!isStart || !isEnd); // 다중 날 태스크
 
-      const top   = DAY_H + lane * (LANE_H + LANE_GAP);
-      const leftP = (cs / 7 * 100).toFixed(3);
-      const wP    = (colSpan / 7 * 100).toFixed(3);
+      const top    = DAY_H + lane * (LANE_H + LANE_GAP);
+      const leftP  = (cs / 7 * 100).toFixed(3);
+      const wP     = (colSpan / 7 * 100).toFixed(3);
+      const barTop = top;
+      const cbkTop = top + 18; // 체크박스는 바 아래쪽
 
       const rL = isStart ? '5px' : '0';
       const rR = isEnd   ? '5px' : '0';
       const bL = isStart ? '' : 'border-left:none;';
       const bR = isEnd   ? '' : 'border-right:none;';
 
-      const r = getTaskRange(t);
-      const startTag = isStart && t.startDate ? `<span class="span-tag">▶${t.startDate.slice(5)}</span>` : '';
-      const endTag   = isEnd   && t.deadline  ? `<span class="span-tag end-tag">◀${t.deadline.slice(5)}</span>` : '';
+      const r         = getTaskRange(t);
+      const totalDays = getTotalDays(t);
+      const doneDays  = getDoneDays(t);
+      const startTag  = isStart && t.startDate ? `<span class="span-tag">▶${t.startDate.slice(5)}</span>` : '';
+      const endTag    = isEnd   && t.deadline  ? `<span class="span-tag end-tag">◀${t.deadline.slice(5)}</span>` : '';
 
-      return `<div class="cal-span-bar${done ? ' bar-done' : ''}${overdue ? ' bar-overdue' : ''}"
-        style="top:${top}px;left:${leftP}%;width:calc(${wP}% - 3px);
+      // 진행률 배지 (다중 날 태스크만)
+      const progressBadge = (isMulti && totalDays > 1 && isStart)
+        ? `<span class="span-progress" style="color:${color}">${doneDays}/${totalDays}</span>`
+        : '';
+
+      // 스팬 바 (제목 라인)
+      const bar = `<div class="cal-span-bar${done ? ' bar-done' : ''}${overdue ? ' bar-overdue' : ''}"
+        style="top:${barTop}px;left:${leftP}%;width:calc(${wP}% - 3px);height:16px;
                background:${color}${done ? '30' : '1e'};
                border:1.5px solid ${color}88;color:${color};
                border-radius:${rL} ${rR} ${rR} ${rL};${bL}${bR}
                ${overdue ? 'box-shadow:0 0 0 1.5px #ff4757 inset;' : ''}"
         onclick="openEditTask('${t.id}')"
-        title="${t.title}${t.startDate?' | 시작:'+t.startDate:''}${t.deadline?' | 마감:'+t.deadline:''}"
-      >${isStart ? `<span class="span-label">${t.title}</span>${startTag}${endTag}` : ''}</div>`;
+        title="${t.title}${t.startDate ? ' | 시작:'+t.startDate : ''}${t.deadline ? ' | 마감:'+t.deadline : ''}"
+      >${isStart ? `<span class="span-label">${t.title}</span>${startTag}${endTag}${progressBadge}` : ''}</div>`;
+
+      // 날별 체크박스 (다중 날 태스크만)
+      let checkboxes = '';
+      if (isMulti) {
+        // 이 주(row)에 표시할 날짜들 (cs~ce에 해당하는 rowDates)
+        const rowSlice = rowDates.slice(cs, ce + 1);
+        checkboxes = rowSlice.map((rd, i) => {
+          // 실제 태스크 범위 안에 있는 날짜인지 확인
+          const inRange = rd.ds >= r.start && rd.ds <= r.end;
+          if (!inRange) return '';
+          const isDayDone = t.dailyDone && t.dailyDone[rd.ds];
+          const colIdx    = cs + i;
+          const cbLeft    = ((colIdx / 7) * 100 + (1 / 7 * 100) / 2).toFixed(3);
+
+          return `<button class="daily-cbk${isDayDone ? ' cbk-done' : ''}"
+            style="top:${cbkTop}px;left:${cbLeft}%;
+                   border-color:${color};
+                   background:${isDayDone ? color : 'white'};
+                   color:${isDayDone ? 'white' : color};"
+            onclick="toggleDailyDone('${t.id}','${rd.ds}',event)"
+            title="${rd.ds} 완료 체크"
+          >${isDayDone ? '✓' : ''}</button>`;
+        }).join('');
+      }
+
+      return bar + checkboxes;
     }).join('');
 
     /* "+N개 더" 셀 */
@@ -530,7 +630,7 @@ function renderCalendar() {
         : `<div class="cal-more-cell"></div>`
       ).join('') + `</div>` : '';
 
-    return `<div class="cal-week-row" style="height:${rowH}px">
+    return `<div class="cal-week-row" style="height:${rowH}px" data-week="${weeks.indexOf ? '' : ''}">
       <div class="cal-day-row">${dayCells}</div>
       ${bars}
       ${moreRow}
@@ -598,15 +698,23 @@ document.querySelectorAll('.view-btn').forEach(btn => {
   });
 });
 
-// 캘린더 이전/다음 월
-document.getElementById('calPrev').addEventListener('click', () => {
+// 캘린더 이전/다음 월 (인라인 nav)
+function calPrevMonth() {
   if (state.calMonth === 0) { state.calMonth = 11; state.calYear--; }
   else state.calMonth--;
   render();
-});
-document.getElementById('calNext').addEventListener('click', () => {
+}
+function calNextMonth() {
   if (state.calMonth === 11) { state.calMonth = 0; state.calYear++; }
   else state.calMonth++;
+  render();
+}
+document.getElementById('calPrev2').addEventListener('click', calPrevMonth);
+document.getElementById('calNext2').addEventListener('click', calNextMonth);
+document.getElementById('calTodayBtn').addEventListener('click', () => {
+  const now = new Date();
+  state.calYear  = now.getFullYear();
+  state.calMonth = now.getMonth();
   render();
 });
 

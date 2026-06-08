@@ -69,16 +69,24 @@
 
   <!-- 뷰 모드 + 필터 & 정렬 -->
   <div class="toolbar">
-    <div class="filter-group">
+    <!-- 리스트 전용 필터 (캘린더에서는 숨김) -->
+    <div class="filter-group" id="listFilterGroup">
       <button class="filter-btn active" data-filter="all">전체</button>
       <button class="filter-btn" data-filter="todo">진행 전</button>
       <button class="filter-btn" data-filter="doing">진행 중</button>
       <button class="filter-btn" data-filter="done">완료</button>
     </div>
+    <!-- 캘린더 전용 월 이동 (리스트에서는 숨김) -->
+    <div class="cal-inline-nav hidden" id="calInlineNav">
+      <button class="cal-nav" id="calPrev2">‹</button>
+      <span id="calTitle2" class="cal-inline-title"></span>
+      <button class="cal-nav" id="calNext2">›</button>
+      <button class="btn-today" id="calTodayBtn">오늘</button>
+    </div>
     <div class="toolbar-right">
       <div class="view-toggle">
-        <button class="view-btn active" data-view-mode="list" title="리스트 뷰">☰ 리스트</button>
-        <button class="view-btn" data-view-mode="calendar" title="캘린더 뷰">📅 캘린더</button>
+        <button class="view-btn active" data-view-mode="list">☰ 리스트</button>
+        <button class="view-btn" data-view-mode="calendar">📅 캘린더</button>
       </div>
       <select id="sortSelect">
         <option value="created">등록순</option>
@@ -93,15 +101,12 @@
 
   <!-- 캘린더 뷰 -->
   <section id="calendarView" class="hidden">
-    <div class="cal-header">
-      <button class="cal-nav" id="calPrev">‹</button>
-      <span id="calTitle"></span>
-      <button class="cal-nav" id="calNext">›</button>
+    <div class="cal-month-grid">
+      <div class="cal-weekdays">
+        <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
     </div>
-    <div class="cal-weekdays">
-      <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
-    </div>
-    <div class="cal-grid" id="calGrid"></div>
     <div class="cal-legend" id="calLegend"></div>
   </section>
 
