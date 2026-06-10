@@ -8,8 +8,18 @@
 </head>
 <body>
 
+<!-- 모바일 상단 헤더 (모바일에서만 표시) -->
+<header class="mobile-header" id="mobileHeader">
+  <button class="mobile-menu-btn" onclick="openMobileSidebar()" aria-label="메뉴 열기">☰</button>
+  <span class="mobile-logo">⚡ TaskFlow</span>
+  <button class="mobile-add-btn" onclick="openAddTask()" aria-label="할 일 추가">+</button>
+</header>
+
+<!-- 사이드바 오버레이 (모바일에서만 활성) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
+
 <!-- 사이드바 -->
-<aside class="sidebar">
+<aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <span class="logo">⚡ TaskFlow</span>
   </div>

@@ -361,6 +361,7 @@ function setView(view) {
   document.getElementById('viewTitle').textContent = project ? project.name : (titles[view] || view);
   document.getElementById('viewSubtitle').textContent = project ? `${state.tasks.filter(t=>t.projectId===view).length}개의 할 일` : '';
   render();
+  if (window.innerWidth <= 768) closeMobileSidebar();
 }
 
 /* ===== 태스크 CRUD ===== */
@@ -1063,6 +1064,16 @@ function saveNote(taskId, date, val) {
     delete task.dailyNotes[date];
   }
   save();
+}
+
+/* ===== 모바일 사이드바 ===== */
+function openMobileSidebar() {
+  document.getElementById('sidebar').classList.add('mobile-open');
+  document.getElementById('sidebarOverlay').classList.add('active');
+}
+function closeMobileSidebar() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebarOverlay').classList.remove('active');
 }
 
 /* ===== 캘린더 날짜 팝업 ===== */
