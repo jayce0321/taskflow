@@ -778,6 +778,40 @@ body {
   border-radius: 3px;
 }
 
+/* ===== 사이드바 하단 (동기화·백업) ===== */
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+.sync-status {
+  font-size: 11px;
+  margin-bottom: 8px;
+  color: #10b981;
+  font-weight: 500;
+}
+.backup-btns {
+  display: flex;
+  gap: 6px;
+}
+.btn-backup {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background .15s;
+}
+.btn-backup:hover { background: var(--border); color: var(--text); }
+
 /* ===== 스크롤바 ===== */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

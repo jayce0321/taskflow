@@ -1,5 +1,6 @@
 /* ===== 데이터 ===== */
 const COLORS = ['#6c63ff','#ff4757','#ffa502','#2ed573','#1e90ff','#ff6b81','#eccc68','#a29bfe','#fd79a8','#00b894'];
+const API_BASE = '';  // 동일 서버 — 배포 후에도 변경 불필요
 
 let state = {
   projects: [],
@@ -14,32 +15,112 @@ let state = {
   editingProjectId: null,
 };
 
-function load() {
-  const saved = localStorage.getItem('taskflow_v2');
-  if (saved) {
-    const parsed = JSON.parse(saved);
-    state.projects = parsed.projects || [];
-    state.tasks = parsed.tasks || [];
-  } else {
-    // 샘플 데이터
-    state.projects = [
-      { id: uid(), name: '개인', color: '#6c63ff' },
-      { id: uid(), name: '업무', color: '#ff4757' },
-    ];
-    const today = dateStr(0);
-    const p1 = state.projects[0].id;
-    const p2 = state.projects[1].id;
-    state.tasks = [
-      { id: uid(), title: 'Claude Code 사용법 익히기', desc: '기본 명령어와 워크플로우 학습', projectId: p1, status: 'doing', priority: 'high', startDate: dateStr(-1), deadline: today, createdAt: Date.now() - 2000 },
-      { id: uid(), title: 'GitHub 레포 만들기', desc: '첫 번째 프로젝트 레포지토리 생성', projectId: p1, status: 'todo', priority: 'medium', startDate: today, deadline: dateStr(2), createdAt: Date.now() - 1000 },
-      { id: uid(), title: '주간 보고서 작성', desc: '', projectId: p2, status: 'todo', priority: 'high', startDate: '', deadline: dateStr(-1), createdAt: Date.now() },
-      { id: uid(), title: '팀 미팅 자료 준비', desc: '', projectId: p2, status: 'done', priority: 'low', startDate: '', deadline: '', createdAt: Date.now() },
-    ];
+// ── 샘플 데이터 초기화 ──────────────────────────────────────────
+function initSampleData() {
+  state.projects = [
+    { id: uid(), name: '개인', color: '#6c63ff' },
+    { id: uid(), name: '업무', color: '#ff4757' },
+  ];
+  const td = dateStr(0), p1 = state.projects[0].id, p2 = state.projects[1].id;
+  state.tasks = [
+    { id: uid(), title: 'Claude Code 사용법 익히기', desc: '기본 명령어와 워크플로우 학습', projectId: p1, status: 'doing', priority: 'high', startDate: dateStr(-1), deadline: td, createdAt: Date.now() - 2000 },
+    { id: uid(), title: 'GitHub 레포 만들기',        desc: '첫 번째 프로젝트 레포지토리 생성', projectId: p1, status: 'todo',  priority: 'medium', startDate: td, deadline: dateStr(2), createdAt: Date.now() - 1000 },
+    { id: uid(), title: '주간 보고서 작성',           desc: '', projectId: p2, status: 'todo',  priority: 'high', startDate: '', deadline: dateStr(-1), createdAt: Date.now() },
+    { id: uid(), title: '팀 미팅 자료 준비',          desc: '', projectId: p2, status: 'done',  priority: 'low',  startDate: '', deadline: '',          createdAt: Date.now() },
+  ];
+}
+
+// ── 클라우드 동기화 로드 ─────────────────────────────────────────
+async function loadData() {
+  showSyncStatus('loading');
+  try {
+    const res = await fetch(API_BASE + '/api/sync');
+    if (!res.ok) throw new Error('서버 응답 오류');
+    const data = await res.json();
+    if (data && Array.isArray(data.projects) && data.projects.length > 0) {
+      state.projects = data.projects;
+      state.tasks    = data.tasks || [];
+      localStorage.setItem('taskflow_v2', JSON.stringify({ projects: state.projects, tasks: state.tasks }));
+    } else {
+      // 서버 데이터 없음 → localStorage 확인 → 샘플 데이터
+      const saved = localStorage.getItem('taskflow_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        state.projects = parsed.projects || [];
+        state.tasks    = parsed.tasks    || [];
+        await save();  // 로컬 데이터를 서버에 업로드
+      } else {
+        initSampleData();
+        await save();
+      }
+    }
+    showSyncStatus('ok');
+  } catch (e) {
+    console.warn('클라우드 로드 실패, 로컬 캐시 사용:', e);
+    const saved = localStorage.getItem('taskflow_v2');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      state.projects = parsed.projects || [];
+      state.tasks    = parsed.tasks    || [];
+    } else {
+      initSampleData();
+    }
+    showSyncStatus('offline');
   }
 }
 
-function save() {
-  localStorage.setItem('taskflow_v2', JSON.stringify({ projects: state.projects, tasks: state.tasks }));
+// ── 클라우드 동기화 저장 ─────────────────────────────────────────
+async function save() {
+  const data = { projects: state.projects, tasks: state.tasks };
+  localStorage.setItem('taskflow_v2', JSON.stringify(data));   // 즉시 로컬 저장
+  try {
+    const res = await fetch(API_BASE + '/api/sync', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('저장 실패');
+    showSyncStatus('ok');
+  } catch (e) {
+    console.warn('클라우드 저장 실패 (로컬만 저장됨):', e);
+    showSyncStatus('offline');
+  }
+}
+
+// ── 동기화 상태 표시 ─────────────────────────────────────────────
+function showSyncStatus(status) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const map = {
+    loading: { text: '⏳ 동기화 중…', color: '#f59e0b' },
+    ok:      { text: '☁️ 클라우드 저장됨', color: '#10b981' },
+    offline: { text: '📴 오프라인 (로컬 저장)', color: '#6b7280' },
+  };
+  const s = map[status] || map.ok;
+  el.textContent  = s.text;
+  el.style.color  = s.color;
+}
+
+// ── 데이터 가져오기 (JSON 파일) ──────────────────────────────────
+async function importData(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.projects) || !Array.isArray(data.tasks)) {
+      alert('올바른 TaskFlow 백업 파일이 아닙니다.');
+      return;
+    }
+    if (!confirm(`프로젝트 ${data.projects.length}개, 할 일 ${data.tasks.length}개를 불러옵니다.\n기존 데이터는 덮어씌워집니다. 계속할까요?`)) return;
+    state.projects = data.projects;
+    state.tasks    = data.tasks;
+    await save();
+    render();
+    showSyncStatus('ok');
+    alert('✅ 데이터를 성공적으로 가져왔습니다!');
+  } catch (e) {
+    alert('파일 읽기 오류: ' + e.message);
+  }
 }
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -723,5 +804,14 @@ document.getElementById('taskTitle').addEventListener('keydown', e => { if (e.ke
 document.getElementById('projectName').addEventListener('keydown', e => { if (e.key === 'Enter') saveProject(); });
 
 /* ===== 초기화 ===== */
-load();
-render();
+// 파일 가져오기 이벤트
+const importFileEl = document.getElementById('importFile');
+if (importFileEl) {
+  importFileEl.addEventListener('change', e => {
+    importData(e.target.files[0]);
+    e.target.value = '';   // 같은 파일 재선택 허용
+  });
+}
+
+// 앱 시작: 클라우드에서 데이터 로드 후 렌더링
+loadData().then(() => render());

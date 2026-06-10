@@ -33,6 +33,18 @@
     </div>
     <ul id="projectList"></ul>
   </div>
+
+  <!-- 동기화 상태 + 데이터 백업 -->
+  <div class="sidebar-footer">
+    <div id="syncStatus" class="sync-status">☁️ 클라우드 저장됨</div>
+    <div class="backup-btns">
+      <a href="/api/export" class="btn-backup" title="JSON으로 내보내기">📥 내보내기</a>
+      <label class="btn-backup" title="JSON 파일로 가져오기">
+        📤 가져오기
+        <input type="file" id="importFile" accept=".json" hidden />
+      </label>
+    </div>
+  </div>
 </aside>
 
 <!-- 메인 -->
