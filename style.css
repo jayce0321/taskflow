@@ -1109,44 +1109,47 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
-  padding: 48px 40px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 24px;
-  backdrop-filter: blur(16px);
-  min-width: 320px;
+  gap: 28px;
+  padding: 52px 48px 56px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 28px;
+  backdrop-filter: blur(20px);
+  min-width: 400px;
+  width: min(420px, 94vw);
 }
 
 .pin-lock-logo {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.5px;
 }
 
 .pin-lock-title {
-  font-size: 15px;
-  color: rgba(255,255,255,0.75);
+  font-size: 18px;
+  color: rgba(255,255,255,0.85);
   margin: 0;
+  text-align: center;
+  line-height: 1.5;
 }
 
 .pin-dots {
   display: flex;
-  gap: 18px;
+  gap: 22px;
 }
 .pin-dot {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.5);
+  border: 2.5px solid rgba(255,255,255,0.5);
   background: transparent;
   transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
 .pin-dot.filled {
   background: #fff;
   border-color: #fff;
-  transform: scale(1.15);
+  transform: scale(1.18);
 }
 .pin-dot.error {
   border-color: #ff4757;
@@ -1154,37 +1157,40 @@ body {
 }
 
 .pin-error {
-  font-size: 13px;
+  font-size: 14px;
   color: #ff6b81;
-  min-height: 18px;
+  min-height: 20px;
   text-align: center;
+  font-weight: 500;
 }
 
 .pin-keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 14px;
   width: 100%;
 }
 
 .pin-key {
   aspect-ratio: 1;
+  min-width: 80px;
+  min-height: 80px;
   border: none;
   border-radius: 50%;
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.12);
   color: #fff;
-  font-size: 22px;
-  font-weight: 500;
+  font-size: 28px;
+  font-weight: 400;
   cursor: pointer;
   transition: background 0.12s, transform 0.08s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.pin-key:hover { background: rgba(255,255,255,0.2); }
-.pin-key:active { transform: scale(0.92); background: rgba(255,255,255,0.25); }
+.pin-key:hover { background: rgba(255,255,255,0.22); }
+.pin-key:active { transform: scale(0.9); background: rgba(255,255,255,0.3); }
 .pin-key-empty { background: transparent !important; cursor: default; }
-.pin-key-del { font-size: 18px; }
+.pin-key-del { font-size: 22px; }
 
 /* 흔들기 애니메이션 */
 @keyframes pinShake {

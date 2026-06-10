@@ -1050,6 +1050,7 @@ function updateDurationHint() {
 document.getElementById('taskStartDate').addEventListener('change', updateDurationHint);
 document.getElementById('taskDeadline').addEventListener('change', updateDurationHint);
 
+
 /* ===================================================
    PIN 잠금
    =================================================== */
@@ -1065,22 +1066,35 @@ function pinIsSet() {
 }
 
 /* ── 잠금 화면 ──────────────────────────────────────── */
-let _pinInput = '';
+let _pinInput    = '';
 let _pinCallback = null;
+let _lockMode    = 'unlock';   // 'unlock' | 'setup_new' | 'setup_confirm'
+let _lockNewPin  = '';
 
-function showLockScreen(mode, onSuccess) {
-  _pinInput = '';
+function showLockScreen(onSuccess) {
+  _pinInput    = '';
   _pinCallback = onSuccess;
-  const screen = document.getElementById('pinLockScreen');
-  document.getElementById('pinLockTitle').textContent = '비밀번호를 입력하세요';
-  document.getElementById('pinError').textContent = '';
-  _updatePinDots(document.getElementById('pinDots'), _pinInput, false);
-  screen.classList.remove('hidden');
+  _lockNewPin  = '';
+  _lockMode    = pinIsSet() ? 'unlock' : 'setup_new';
+  _refreshLockUI();
+  document.getElementById('pinLockScreen').classList.remove('hidden');
 }
 
 function hideLockScreen() {
   document.getElementById('pinLockScreen').classList.add('hidden');
   _pinInput = '';
+}
+
+function _refreshLockUI() {
+  const messages = {
+    unlock:        '비밀번호를 입력하세요',
+    setup_new:     '사용할 비밀번호 4자리를 설정해주세요',
+    setup_confirm: '비밀번호를 한 번 더 입력하세요',
+  };
+  document.getElementById('pinLockTitle').textContent = messages[_lockMode];
+  document.getElementById('pinError').textContent = '';
+  _pinInput = '';
+  _updatePinDots(document.getElementById('pinDots'), '', false);
 }
 
 function _updatePinDots(container, val, isError) {
@@ -1090,28 +1104,48 @@ function _updatePinDots(container, val, isError) {
   });
 }
 
+function _lockShakeError(dots, msg) {
+  _updatePinDots(dots, _pinInput, true);
+  dots.classList.remove('shake');
+  void dots.offsetWidth;
+  dots.classList.add('shake');
+  document.getElementById('pinError').textContent = msg;
+  setTimeout(() => {
+    _pinInput = '';
+    _updatePinDots(dots, '', false);
+    document.getElementById('pinError').textContent = '';
+  }, 900);
+}
+
 async function _lockKeyPress(num) {
   if (_pinInput.length >= 4) return;
   _pinInput += num;
   const dots = document.getElementById('pinDots');
   _updatePinDots(dots, _pinInput, false);
-  if (_pinInput.length === 4) {
+  if (_pinInput.length < 4) return;
+
+  if (_lockMode === 'unlock') {
     const stored = localStorage.getItem(PIN_KEY);
     const entered = await hashPin(_pinInput);
     if (entered === stored) {
       hideLockScreen();
       if (_pinCallback) _pinCallback();
     } else {
-      _updatePinDots(dots, _pinInput, true);
-      dots.classList.remove('shake');
-      void dots.offsetWidth; // reflow
-      dots.classList.add('shake');
-      document.getElementById('pinError').textContent = '비밀번호가 틀렸습니다';
-      setTimeout(() => {
-        _pinInput = '';
-        _updatePinDots(dots, '', false);
-        document.getElementById('pinError').textContent = '';
-      }, 900);
+      _lockShakeError(dots, '비밀번호가 틀렸습니다');
+    }
+  } else if (_lockMode === 'setup_new') {
+    _lockNewPin = _pinInput;
+    _lockMode   = 'setup_confirm';
+    setTimeout(_refreshLockUI, 200);
+  } else if (_lockMode === 'setup_confirm') {
+    if (_pinInput === _lockNewPin) {
+      const hash = await hashPin(_pinInput);
+      localStorage.setItem(PIN_KEY, hash);
+      hideLockScreen();
+      if (_pinCallback) _pinCallback();
+    } else {
+      _lockShakeError(dots, '비밀번호가 일치하지 않습니다');
+      setTimeout(() => { _lockMode = 'setup_new'; _lockNewPin = ''; _refreshLockUI(); }, 1000);
     }
   }
 }
@@ -1134,9 +1168,9 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* ── PIN 설정 모달 ───────────────────────────────────── */
-let _setupStep = 'new';   // 'current' | 'new' | 'confirm'
-let _setupNew  = '';
+/* ── PIN 변경/해제 모달 (사이드바 버튼) ─────────────── */
+let _setupStep  = 'current';
+let _setupNew   = '';
 let _setupInput = '';
 
 function openPinSetupModal() {
@@ -1154,16 +1188,15 @@ function closePinSetupModal() {
 }
 
 function _renderPinSetupStep() {
-  const body = document.getElementById('pinSetupBody');
+  const body  = document.getElementById('pinSetupBody');
   const title = document.getElementById('pinSetupTitle');
   const labels = {
-    current: { t: 'PIN 잠금 설정', hint: '현재 비밀번호를 입력하세요' },
-    new:     { t: 'PIN 잠금 설정', hint: '새 비밀번호 4자리를 입력하세요' },
-    confirm: { t: 'PIN 잠금 설정', hint: '비밀번호를 한 번 더 입력하세요' },
+    current: { t: 'PIN 변경/해제', hint: '현재 비밀번호를 입력하세요' },
+    new:     { t: 'PIN 변경',      hint: '새 비밀번호 4자리를 입력하세요' },
+    confirm: { t: 'PIN 변경',      hint: '비밀번호를 한 번 더 입력하세요' },
   };
   const { t, hint } = labels[_setupStep];
   title.textContent = t;
-
   body.innerHTML = `
     <div class="pin-setup-step">
       <p class="pin-setup-hint">${hint}</p>
@@ -1183,20 +1216,18 @@ function _renderPinSetupStep() {
         <button class="btn-secondary" id="pinSetupCancelBtn">취소</button>
       </div>
     </div>`;
-
   _setupInput = '';
   _updateSetupDots('');
-
-  body.querySelectorAll('.pin-setup-key[data-snum]').forEach(btn => {
-    btn.addEventListener('click', () => _setupKeyPress(btn.dataset.snum));
+  body.querySelectorAll('.pin-setup-key[data-snum]').forEach(b => {
+    b.addEventListener('click', () => _setupKeyPress(b.dataset.snum));
   });
   document.getElementById('setupDelBtn').addEventListener('click', () => {
     _setupInput = _setupInput.slice(0, -1);
     _updateSetupDots(_setupInput);
   });
   document.getElementById('pinSetupCancelBtn').addEventListener('click', closePinSetupModal);
-  const removeBtn = document.getElementById('pinRemoveBtn');
-  if (removeBtn) removeBtn.addEventListener('click', _removePin);
+  const rb = document.getElementById('pinRemoveBtn');
+  if (rb) rb.addEventListener('click', _removePin);
 }
 
 function _updateSetupDots(val) {
@@ -1210,11 +1241,9 @@ async function _setupKeyPress(num) {
   _setupInput += num;
   _updateSetupDots(_setupInput);
   if (_setupInput.length < 4) return;
-
   if (_setupStep === 'current') {
-    const stored = localStorage.getItem(PIN_KEY);
-    const entered = await hashPin(_setupInput);
-    if (entered !== stored) {
+    const ok = (await hashPin(_setupInput)) === localStorage.getItem(PIN_KEY);
+    if (!ok) {
       document.getElementById('setupError').textContent = '비밀번호가 틀렸습니다';
       setTimeout(() => { _setupInput = ''; _updateSetupDots(''); document.getElementById('setupError').textContent = ''; }, 900);
       return;
@@ -1231,17 +1260,14 @@ async function _setupKeyPress(num) {
       setTimeout(() => { _setupInput = ''; _updateSetupDots(''); document.getElementById('setupError').textContent = ''; }, 900);
       return;
     }
-    const hash = await hashPin(_setupNew);
-    localStorage.setItem(PIN_KEY, hash);
+    localStorage.setItem(PIN_KEY, await hashPin(_setupNew));
     closePinSetupModal();
-    alert('✅ PIN이 설정되었습니다.');
+    alert('✅ PIN이 변경되었습니다.');
   }
 }
 
 async function _removePin() {
-  const stored = localStorage.getItem(PIN_KEY);
-  const entered = await hashPin(_setupInput);
-  if (entered !== stored) {
+  if ((await hashPin(_setupInput)) !== localStorage.getItem(PIN_KEY)) {
     document.getElementById('setupError').textContent = '비밀번호가 틀렸습니다';
     return;
   }
@@ -1250,17 +1276,10 @@ async function _removePin() {
   alert('🔓 PIN이 해제되었습니다.');
 }
 
-// PIN 설정 버튼
 document.getElementById('pinSettingBtn').addEventListener('click', openPinSetupModal);
-// PIN 설정 모달 닫기
 document.getElementById('closePinSetupModal').addEventListener('click', closePinSetupModal);
 
-// 앱 시작: PIN 확인 후 클라우드에서 데이터 로드
+// 앱 시작: 항상 PIN 화면 먼저
 (async () => {
-  if (pinIsSet()) {
-    showLockScreen('unlock', async () => { await loadData(); render(); });
-  } else {
-    await loadData();
-    render();
-  }
+  showLockScreen(async () => { await loadData(); render(); });
 })();
