@@ -31,48 +31,73 @@ function initSampleData() {
   ];
 }
 
+// ── 저장 상태 관리 ───────────────────────────────────────────────
+let _pendingSave  = false;   // 서버 저장 실패 → 재시도 대기 중
+let _lastSavedAt  = null;    // 마지막 성공 저장 시각
+let _syncTimer    = null;    // 저장 시간 갱신 인터벌
+
+function _formatTimeAgo(ts) {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec <  5)  return '방금';
+  if (sec < 60)  return `${sec}초 전`;
+  const m = Math.floor(sec / 60);
+  if (m  < 60)   return `${m}분 전`;
+  return `${Math.floor(m / 60)}시간 전`;
+}
+
 // ── 클라우드 동기화 로드 ─────────────────────────────────────────
 async function loadData() {
   showSyncStatus('loading');
+  // 로컬 데이터 + 타임스탬프 확인
+  const localRaw  = localStorage.getItem('taskflow_v2');
+  const localData = localRaw ? JSON.parse(localRaw) : null;
+  const localTs   = localData?.updatedAt || 0;
+
   try {
     const res = await fetch(API_BASE + '/api/sync');
     if (!res.ok) throw new Error('서버 응답 오류');
-    const data = await res.json();
-    if (data && Array.isArray(data.projects) && data.projects.length > 0) {
-      state.projects = data.projects;
-      state.tasks    = data.tasks || [];
-      localStorage.setItem('taskflow_v2', JSON.stringify({ projects: state.projects, tasks: state.tasks }));
-    } else {
-      // 서버 데이터 없음 → localStorage 확인 → 샘플 데이터
-      const saved = localStorage.getItem('taskflow_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        state.projects = parsed.projects || [];
-        state.tasks    = parsed.tasks    || [];
-        await save();  // 로컬 데이터를 서버에 업로드
-      } else {
-        initSampleData();
+    const serverData = await res.json();
+    const serverTs   = serverData?.updatedAt || 0;
+
+    if (serverData && Array.isArray(serverData.projects) && serverData.projects.length > 0) {
+      if (localTs > serverTs) {
+        // 로컬이 더 최신 → 서버에 업로드
+        state.projects = localData.projects || [];
+        state.tasks    = localData.tasks    || [];
         await save();
+      } else {
+        // 서버가 최신 (또는 동일)
+        state.projects = serverData.projects;
+        state.tasks    = serverData.tasks || [];
+        localStorage.setItem('taskflow_v2', JSON.stringify(serverData));
+        _lastSavedAt = serverTs || Date.now();
       }
+    } else if (localData?.projects?.length > 0) {
+      // 서버 데이터 없음 → 로컬 업로드
+      state.projects = localData.projects || [];
+      state.tasks    = localData.tasks    || [];
+      await save();
+    } else {
+      initSampleData();
+      await save();
     }
     showSyncStatus('ok');
   } catch (e) {
     console.warn('클라우드 로드 실패, 로컬 캐시 사용:', e);
-    const saved = localStorage.getItem('taskflow_v2');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      state.projects = parsed.projects || [];
-      state.tasks    = parsed.tasks    || [];
+    if (localData?.projects?.length > 0) {
+      state.projects = localData.projects || [];
+      state.tasks    = localData.tasks    || [];
     } else {
       initSampleData();
     }
+    _pendingSave = true;
     showSyncStatus('offline');
   }
 }
 
 // ── 클라우드 동기화 저장 ─────────────────────────────────────────
 async function save() {
-  const data = { projects: state.projects, tasks: state.tasks };
+  const data = { projects: state.projects, tasks: state.tasks, updatedAt: Date.now() };
   localStorage.setItem('taskflow_v2', JSON.stringify(data));   // 즉시 로컬 저장
   try {
     const res = await fetch(API_BASE + '/api/sync', {
@@ -81,25 +106,47 @@ async function save() {
       body:    JSON.stringify(data),
     });
     if (!res.ok) throw new Error('저장 실패');
+    _lastSavedAt = Date.now();
+    _pendingSave = false;
     showSyncStatus('ok');
   } catch (e) {
     console.warn('클라우드 저장 실패 (로컬만 저장됨):', e);
+    _pendingSave = true;
     showSyncStatus('offline');
   }
 }
+
+// ── 온라인 복구 시 자동 재동기화 ────────────────────────────────
+window.addEventListener('online', async () => {
+  if (_pendingSave) {
+    showSyncStatus('loading');
+    await save();
+    if (!_pendingSave) render();
+  }
+});
 
 // ── 동기화 상태 표시 ─────────────────────────────────────────────
 function showSyncStatus(status) {
   const el = document.getElementById('syncStatus');
   if (!el) return;
+  clearInterval(_syncTimer);
+
+  if (status === 'ok') {
+    const update = () => {
+      el.textContent = _lastSavedAt ? `☁️ 저장됨 · ${_formatTimeAgo(_lastSavedAt)}` : '☁️ 클라우드 저장됨';
+      el.style.color = '#10b981';
+    };
+    update();
+    _syncTimer = setInterval(update, 30000);
+    return;
+  }
   const map = {
-    loading: { text: '⏳ 동기화 중…', color: '#f59e0b' },
-    ok:      { text: '☁️ 클라우드 저장됨', color: '#10b981' },
-    offline: { text: '📴 오프라인 (로컬 저장)', color: '#6b7280' },
+    loading: { text: '⏳ 동기화 중…',              color: '#f59e0b' },
+    offline: { text: '📴 오프라인 (재연결 대기 중)', color: '#ef4444' },
   };
-  const s = map[status] || map.ok;
-  el.textContent  = s.text;
-  el.style.color  = s.color;
+  const s = map[status] || map.loading;
+  el.textContent = s.text;
+  el.style.color = s.color;
 }
 
 // ── 데이터 가져오기 (JSON 파일) ──────────────────────────────────
@@ -910,9 +957,15 @@ function renderDrawerContent() {
   const deadlineDisplay = task.deadline
     ? `<span class="drawer-date-item${overdue ? ' overdue' : ''}">◀ 마감: ${formatDateTime(task.deadline)}</span>` : '';
 
+  const statusBtns = ['todo', 'doing', 'done'].map(s =>
+    `<button class="drawer-status-btn ${task.status === s ? 'active' : ''}"
+       onclick="changeTaskStatus('${task.id}','${s}',event)">${statusLabel(s)}</button>`
+  ).join('');
+
   let html = `
     <div class="drawer-task-title">${task.title}</div>
     <div class="drawer-meta-row">${projBadge}${statusBadge}${priorityBadge}${overdueBadge}</div>
+    <div class="drawer-status-bar">${statusBtns}</div>
     ${task.desc ? `<div class="drawer-desc">${task.desc}</div>` : ''}
     ${(startDisplay || deadlineDisplay)
       ? `<div class="drawer-dates">${startDisplay}${deadlineDisplay}</div>` : ''}
@@ -1008,6 +1061,16 @@ function saveNote(taskId, date, val) {
     delete task.dailyNotes[date];
   }
   save();
+}
+
+function changeTaskStatus(id, newStatus, e) {
+  if (e) e.stopPropagation();
+  const task = state.tasks.find(t => t.id === id);
+  if (!task || task.status === newStatus) return;
+  task.status = newStatus;
+  save();
+  render();
+  renderDrawerContent();
 }
 
 /* ===== 드로어 이벤트 ===== */

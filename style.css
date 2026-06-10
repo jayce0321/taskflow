@@ -953,6 +953,29 @@ body {
 .drawer-date-item { display: flex; align-items: center; gap: 5px; }
 .drawer-date-item.overdue { color: var(--danger); font-weight: 600; }
 
+/* 드로어 상태 빠른 변경 버튼 */
+.drawer-status-bar {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.drawer-status-btn {
+  flex: 1;
+  padding: 7px 0;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.drawer-status-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0f4ff; }
+.drawer-status-btn.active[onclick*="todo"]   { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+.drawer-status-btn.active[onclick*="doing"]  { background: #fffbeb; border-color: #f59e0b; color: #b45309; }
+.drawer-status-btn.active[onclick*="done"]   { background: #f0fdf4; border-color: #10b981; color: #047857; }
+
 /* 진행률 바 */
 .progress-section {
   margin-bottom: 24px;
