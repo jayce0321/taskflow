@@ -13,6 +13,7 @@ let state = {
   calMonth: new Date().getMonth(),
   editingTaskId: null,
   editingProjectId: null,
+  drawerTaskId: null,       // 현재 드로어에 열린 태스크 ID
 };
 
 // ── 샘플 데이터 초기화 ──────────────────────────────────────────
@@ -279,7 +280,7 @@ function renderBoard() {
                               ? `<span class="task-date ${deadlineClass}">🗓 ${formatDateTime(t.deadline)}${deadlineLabel ? ' · ' + deadlineLabel : ''}</span>` : '';
 
     return `
-      <div class="task-card priority-${t.priority} status-${t.status}" onclick="openEditTask('${t.id}')">
+      <div class="task-card priority-${t.priority} status-${t.status}" onclick="openTaskDetail('${t.id}')">
         <div class="task-checkbox ${t.status === 'done' ? 'checked' : ''}"
              onclick="toggleDone('${t.id}', event)"></div>
         <div class="task-body">
@@ -329,6 +330,8 @@ function openAddTask() {
   if (state.currentView !== 'all' && state.currentView !== 'today' && state.currentView !== 'overdue') {
     document.getElementById('taskProject').value = state.currentView;
   }
+  const hint = document.getElementById('durationHint');
+  if (hint) hint.textContent = '';
   showModal('taskModal');
 }
 
@@ -336,6 +339,8 @@ function openEditTask(id, e) {
   if (e) e.stopPropagation();
   const task = state.tasks.find(t => t.id === id);
   if (!task) return;
+  // 드로어가 같은 태스크를 보고 있으면 열어둠, 다른 태스크면 닫기
+  if (state.drawerTaskId && state.drawerTaskId !== id) closeDrawerPanel();
   state.editingTaskId = id;
   document.getElementById('modalTitle').textContent = '할 일 수정';
   document.getElementById('taskTitle').value = task.title;
@@ -345,6 +350,7 @@ function openEditTask(id, e) {
   document.getElementById('taskStartDate').value = task.startDate || '';
   document.getElementById('taskDeadline').value = task.deadline || '';
   refreshProjectSelect(task.projectId);
+  updateDurationHint();
   showModal('taskModal');
 }
 
@@ -369,9 +375,11 @@ function saveTask() {
     state.tasks.push({ id: uid(), createdAt: Date.now(), ...data });
   }
 
+  const savedId = state.editingTaskId;
   save();
   hideModal('taskModal');
   render();
+  if (savedId && state.drawerTaskId === savedId) renderDrawerContent();
 }
 
 function toggleDone(id, e) {
@@ -545,6 +553,7 @@ function toggleDailyDone(taskId, ds, e) {
 
   save();
   render();
+  if (state.drawerTaskId === taskId) renderDrawerContent();
 }
 
 function renderCalendar() {
@@ -705,7 +714,7 @@ function renderCalendar() {
                border:1.5px solid ${color}88;color:${color};
                border-radius:${rL} ${rR} ${rR} ${rL};${bL}${bR}
                ${overdue ? 'box-shadow:0 0 0 1.5px #ff4757 inset;' : ''}"
-        onclick="openEditTask('${t.id}')"
+        onclick="openTaskDetail('${t.id}')"
         title="${t.title}${t.startDate ? ' | 시작:'+formatDateTime(t.startDate) : ''}${t.deadline ? ' | 마감:'+formatDateTime(t.deadline) : ''}"
       >${isStart ? `<span class="span-label">${t.title}</span>${startTag}${endTag}${progressBadge}` : ''}</div>`;
 
@@ -847,3 +856,197 @@ if (importFileEl) {
 
 // 앱 시작: 클라우드에서 데이터 로드 후 렌더링
 loadData().then(() => render());
+
+/* ===================================================
+   태스크 상세 드로어
+   =================================================== */
+
+function openTaskDetail(id, e) {
+  if (e) e.stopPropagation();
+  state.drawerTaskId = id;
+  document.getElementById('taskDetailDrawer').classList.add('open');
+  document.getElementById('drawerOverlay').classList.remove('hidden');
+  renderDrawerContent();
+}
+
+function closeDrawerPanel() {
+  state.drawerTaskId = null;
+  document.getElementById('taskDetailDrawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.add('hidden');
+}
+
+function renderDrawerContent() {
+  const id = state.drawerTaskId;
+  if (!id) return;
+  const task = state.tasks.find(t => t.id === id);
+  if (!task) { closeDrawerPanel(); return; }
+
+  const project  = state.projects.find(p => p.id === task.projectId);
+  const overdue  = isOverdue(task);
+  const todayStr = today();
+
+  // 날짜 범위 계산
+  let dateRange = null;
+  if (task.startDate && task.deadline) {
+    const s = task.startDate.slice(0, 10);
+    const e = task.deadline.slice(0, 10);
+    if (s <= e) dateRange = getDatesBetween(s, e);
+  }
+
+  const totalDays = dateRange ? dateRange.length : 0;
+  const doneDays  = getDoneDays(task);
+  const pct       = totalDays > 1 ? Math.round(doneDays / totalDays * 100) : 0;
+
+  // 메타 배지
+  const projBadge = project
+    ? `<span class="badge badge-project" style="background:${project.color}22;color:${project.color}">● ${project.name}</span>` : '';
+  const statusBadge  = `<span class="badge badge-status-${task.status}">${statusLabel(task.status)}</span>`;
+  const priorityBadge = `<span class="badge badge-priority-${task.priority}">${priorityLabel(task.priority)}</span>`;
+  const overdueBadge = overdue
+    ? `<span class="badge" style="background:#ffeaea;color:var(--danger)">⚠️ 기한 초과</span>` : '';
+
+  // 날짜 표시
+  const startDisplay = task.startDate
+    ? `<span class="drawer-date-item">▶ 시작: ${formatDateTime(task.startDate)}</span>` : '';
+  const deadlineDisplay = task.deadline
+    ? `<span class="drawer-date-item${overdue ? ' overdue' : ''}">◀ 마감: ${formatDateTime(task.deadline)}</span>` : '';
+
+  let html = `
+    <div class="drawer-task-title">${task.title}</div>
+    <div class="drawer-meta-row">${projBadge}${statusBadge}${priorityBadge}${overdueBadge}</div>
+    ${task.desc ? `<div class="drawer-desc">${task.desc}</div>` : ''}
+    ${(startDisplay || deadlineDisplay)
+      ? `<div class="drawer-dates">${startDisplay}${deadlineDisplay}</div>` : ''}
+  `;
+
+  // 진행률 바 (2일 이상 기간)
+  if (dateRange && totalDays > 1) {
+    html += `
+      <div class="progress-section">
+        <div class="progress-label">전체 진행률</div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <div class="progress-text">
+          <strong>${doneDays}일</strong> 완료 / 총 <strong>${totalDays}일</strong> (${pct}%)
+        </div>
+      </div>
+    `;
+  }
+
+  // 일별 진행 기록 섹션
+  html += `<div class="daily-log-section"><div class="section-title">📅 일별 진행 기록</div>`;
+
+  if (!dateRange) {
+    html += `
+      <div class="no-dates-hint">
+        시작일과 마감일을 모두 설정하면<br>날짜별 진행 기록을 남길 수 있습니다.
+        <br><br>
+        <button class="btn-secondary btn-sm" onclick="openEditTask('${id}')">📅 날짜 설정하기</button>
+      </div>
+    `;
+  } else {
+    const MAX_SHOW = 90;
+    const displayDates = totalDays > MAX_SHOW ? dateRange.slice(0, MAX_SHOW) : dateRange;
+    const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+
+    displayDates.forEach((ds, idx) => {
+      const isDone   = !!(task.dailyDone && task.dailyDone[ds]);
+      const note     = (task.dailyNotes && task.dailyNotes[ds]) || '';
+      const isToday  = ds === todayStr;
+      const isPast   = ds < todayStr;
+      const dayNum   = idx + 1;
+      const d        = new Date(ds + 'T00:00:00');
+      const label    = `Day ${dayNum} &nbsp;·&nbsp; ${ds.slice(5)} (${weekDays[d.getDay()]})`;
+      const phText   = isToday ? '오늘 진행한 내용을 기록하세요...'
+                     : isPast  ? '이날의 진행 내용...'
+                     :           '미래 계획을 적어두세요...';
+
+      const itemClass = ['day-log-item', isDone ? 'day-done' : '', isToday ? 'day-today' : ''].filter(Boolean).join(' ');
+
+      html += `
+        <div class="${itemClass}">
+          <div class="day-log-header">
+            <div class="day-log-check ${isDone ? 'done' : ''}"
+                 onclick="toggleDailyDone('${task.id}','${ds}',event)">${isDone ? '✓' : ''}</div>
+            <span class="day-log-label">
+              ${isToday ? '<span class="today-tag">🔵 오늘</span> &nbsp;' : ''}${label}
+            </span>
+          </div>
+          <textarea class="day-log-textarea"
+            placeholder="${phText}"
+            oninput="saveNoteDebounced('${task.id}','${ds}',this.value)"
+          >${note}</textarea>
+        </div>
+      `;
+    });
+
+    if (totalDays > MAX_SHOW) {
+      html += `<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:8px 0">
+        ... 이후 ${totalDays - MAX_SHOW}일은 생략됩니다 (최대 ${MAX_SHOW}일 표시)
+      </div>`;
+    }
+  }
+
+  html += `</div>`;
+  document.getElementById('drawerBody').innerHTML = html;
+}
+
+/* ===== 일별 메모 저장 ===== */
+let _noteTimer = null;
+function saveNoteDebounced(taskId, date, val) {
+  clearTimeout(_noteTimer);
+  _noteTimer = setTimeout(() => saveNote(taskId, date, val), 700);
+}
+
+function saveNote(taskId, date, val) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  if (!task.dailyNotes) task.dailyNotes = {};
+  if (val.trim()) {
+    task.dailyNotes[date] = val;
+  } else {
+    delete task.dailyNotes[date];
+  }
+  save();
+}
+
+/* ===== 드로어 이벤트 ===== */
+document.getElementById('closeDrawerBtn').addEventListener('click', closeDrawerPanel);
+document.getElementById('drawerOverlay').addEventListener('click', closeDrawerPanel);
+
+document.getElementById('drawerEditBtn').addEventListener('click', () => {
+  const id = state.drawerTaskId;
+  closeDrawerPanel();
+  openEditTask(id);
+});
+
+document.getElementById('drawerDeleteBtn').addEventListener('click', () => {
+  const id = state.drawerTaskId;
+  const task = state.tasks.find(t => t.id === id);
+  if (!task) return;
+  if (!confirm(`"${task.title}"을(를) 삭제할까요?`)) return;
+  state.tasks = state.tasks.filter(t => t.id !== id);
+  save();
+  closeDrawerPanel();
+  render();
+});
+
+/* ===== 등록 모달 기간 힌트 ===== */
+function updateDurationHint() {
+  const hint  = document.getElementById('durationHint');
+  if (!hint) return;
+  const start = document.getElementById('taskStartDate').value;
+  const end   = document.getElementById('taskDeadline').value;
+  if (start && end) {
+    const s    = new Date(start.slice(0, 10) + 'T00:00:00');
+    const e    = new Date(end.slice(0, 10)   + 'T00:00:00');
+    const days = Math.round((e - s) / 86400000) + 1;
+    hint.textContent = days > 0 ? `📅 ${days}일 일정 — 일별 진행 기록을 남길 수 있어요` : '';
+  } else {
+    hint.textContent = '';
+  }
+}
+
+document.getElementById('taskStartDate').addEventListener('change', updateDurationHint);
+document.getElementById('taskDeadline').addEventListener('change', updateDurationHint);

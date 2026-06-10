@@ -175,6 +175,7 @@
     <div class="form-group">
       <label>마감 일시</label>
       <input type="datetime-local" id="taskDeadline" />
+      <div id="durationHint" class="duration-hint"></div>
     </div>
 
     <div class="modal-footer">
@@ -208,6 +209,19 @@
 
 <!-- 배경 오버레이 -->
 <div id="overlay" class="overlay hidden"></div>
+
+<!-- 태스크 상세 드로어 -->
+<div id="taskDetailDrawer" class="drawer">
+  <div class="drawer-header">
+    <button class="drawer-close" id="closeDrawerBtn">✕</button>
+    <div class="drawer-header-actions">
+      <button class="btn-secondary btn-sm" id="drawerEditBtn">✏️ 수정</button>
+      <button class="btn-danger btn-sm" id="drawerDeleteBtn">🗑 삭제</button>
+    </div>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</div>
+<div id="drawerOverlay" class="drawer-overlay hidden"></div>
 
 <script src="app.js"></script>
 </body>
