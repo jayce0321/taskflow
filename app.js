@@ -133,12 +133,30 @@ function dateStr(offsetDays = 0) {
 
 function today() { return dateStr(0); }
 
-function isOverdue(task) {
-  return task.deadline && task.deadline < today() && task.status !== 'done';
+// ── 날짜+시간 포맷 표시 ─────────────────────────────────────────
+// "2026-06-10T09:30" → "오늘 09:30" / "2026-06-10 09:30"
+// "2026-06-10"       → "오늘" / "2026-06-10"  (레거시 date-only 호환)
+function formatDateTime(dt) {
+  if (!dt) return '';
+  const datePart = dt.slice(0, 10);
+  const timePart = dt.length >= 16 ? dt.slice(11, 16) : '';
+  const todayStr = today();
+  const label    = datePart === todayStr ? '오늘' : datePart;
+  return timePart ? `${label} ${timePart}` : label;
 }
 
+// ── 기한 초과: 시간 포함 판정 ────────────────────────────────────
+function isOverdue(task) {
+  if (!task.deadline || task.status === 'done') return false;
+  const dl = task.deadline;
+  if (dl.includes('T')) return new Date(dl) < new Date();   // datetime 비교
+  return dl < today();                                        // date-only (레거시)
+}
+
+// ── 오늘 마감: 날짜 부분만 비교 ─────────────────────────────────
 function isToday(task) {
-  return task.deadline === today() && task.status !== 'done';
+  if (!task.deadline || task.status === 'done') return false;
+  return task.deadline.slice(0, 10) === today();
 }
 
 /* ===== 뷰 필터 ===== */
@@ -249,10 +267,16 @@ function renderBoard() {
 
   board.innerHTML = tasks.map(t => {
     const project = state.projects.find(p => p.id === t.projectId);
-    const overdue = isOverdue(t);
+    const overdue   = isOverdue(t);
     const todayTask = isToday(t);
     const deadlineClass = overdue ? 'overdue' : todayTask ? 'today' : '';
     const deadlineLabel = overdue ? '⚠️ 기한 초과' : todayTask ? '📅 오늘 마감' : '';
+
+    // 시작·마감 일시 표시 (시간이 있으면 함께 출력)
+    const startDisplay    = (t.startDate && t.startDate !== t.deadline)
+                              ? `<span class="task-date">▶ ${formatDateTime(t.startDate)}</span>` : '';
+    const deadlineDisplay = t.deadline
+                              ? `<span class="task-date ${deadlineClass}">🗓 ${formatDateTime(t.deadline)}${deadlineLabel ? ' · ' + deadlineLabel : ''}</span>` : '';
 
     return `
       <div class="task-card priority-${t.priority} status-${t.status}" onclick="openEditTask('${t.id}')">
@@ -265,7 +289,8 @@ function renderBoard() {
             ${project ? `<span class="badge badge-project" style="background:${project.color}22;color:${project.color}">● ${project.name}</span>` : ''}
             <span class="badge badge-status-${t.status}">${statusLabel(t.status)}</span>
             <span class="badge badge-priority-${t.priority}">${priorityLabel(t.priority)}</span>
-            ${t.deadline ? `<span class="task-date ${deadlineClass}">🗓 ${t.deadline}${deadlineLabel ? ' · ' + deadlineLabel : ''}</span>` : ''}
+            ${startDisplay}
+            ${deadlineDisplay}
           </div>
         </div>
         <div class="task-actions">
@@ -441,10 +466,10 @@ function toDateStr(d) {
   return `${y}-${m}-${dd}`;
 }
 
-// 태스크 표시 범위: startDate~deadline, 하나만 있으면 하루짜리
+// 태스크 표시 범위: startDate~deadline (날짜 부분만 추출 — datetime 호환)
 function getTaskRange(t) {
-  const s = t.startDate || t.deadline;
-  const e = t.deadline   || t.startDate;
+  const s = (t.startDate || t.deadline)?.slice(0, 10);
+  const e = (t.deadline  || t.startDate)?.slice(0, 10);
   if (!s) return null;
   return { start: s <= e ? s : e, end: s <= e ? e : s };
 }
@@ -658,8 +683,15 @@ function renderCalendar() {
       const r         = getTaskRange(t);
       const totalDays = getTotalDays(t);
       const doneDays  = getDoneDays(t);
-      const startTag  = isStart && t.startDate ? `<span class="span-tag">▶${t.startDate.slice(5)}</span>` : '';
-      const endTag    = isEnd   && t.deadline  ? `<span class="span-tag end-tag">◀${t.deadline.slice(5)}</span>` : '';
+      // 시작·마감 태그: 날짜(MM-DD) + 시간(HH:mm) 표시
+      const startShort = t.startDate
+        ? t.startDate.slice(5, 10) + (t.startDate.length >= 16 ? ' ' + t.startDate.slice(11, 16) : '')
+        : '';
+      const endShort = t.deadline
+        ? t.deadline.slice(5, 10) + (t.deadline.length >= 16 ? ' ' + t.deadline.slice(11, 16) : '')
+        : '';
+      const startTag  = isStart && t.startDate ? `<span class="span-tag">▶${startShort}</span>` : '';
+      const endTag    = isEnd   && t.deadline  ? `<span class="span-tag end-tag">◀${endShort}</span>` : '';
 
       // 진행률 배지 (다중 날 태스크만)
       const progressBadge = (isMulti && totalDays > 1 && isStart)
@@ -674,7 +706,7 @@ function renderCalendar() {
                border-radius:${rL} ${rR} ${rR} ${rL};${bL}${bR}
                ${overdue ? 'box-shadow:0 0 0 1.5px #ff4757 inset;' : ''}"
         onclick="openEditTask('${t.id}')"
-        title="${t.title}${t.startDate ? ' | 시작:'+t.startDate : ''}${t.deadline ? ' | 마감:'+t.deadline : ''}"
+        title="${t.title}${t.startDate ? ' | 시작:'+formatDateTime(t.startDate) : ''}${t.deadline ? ' | 마감:'+formatDateTime(t.deadline) : ''}"
       >${isStart ? `<span class="span-label">${t.title}</span>${startTag}${endTag}${progressBadge}` : ''}</div>`;
 
       // 날별 체크박스 (다중 날 태스크만)
