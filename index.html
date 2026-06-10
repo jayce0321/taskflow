@@ -266,6 +266,17 @@
 </div>
 <div id="drawerOverlay" class="drawer-overlay hidden"></div>
 
+<!-- 캘린더 날짜 태스크 팝업 -->
+<div id="dayTaskPopup" class="day-task-popup hidden" onclick="closeDayTaskPopup()">
+  <div class="day-popup-box" onclick="event.stopPropagation()">
+    <div class="day-popup-header">
+      <span class="day-popup-date" id="dayPopupDate"></span>
+      <button class="day-popup-close" onclick="closeDayTaskPopup()">✕</button>
+    </div>
+    <div class="day-popup-list" id="dayPopupList"></div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

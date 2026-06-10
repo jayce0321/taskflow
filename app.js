@@ -686,10 +686,12 @@ function renderCalendar() {
     const visible = placed.filter(p => p.lane < MAX_VISIBLE_LANES);
     const hidden  = placed.filter(p => p.lane >= MAX_VISIBLE_LANES);
 
-    // 날짜별 hidden 카운트 ("+N개 더" 표시용)
-    const hiddenByCol = Array(7).fill(0);
+    // 날짜별 hidden 태스크 ID 배열 ("+N개 더" 클릭용)
+    const hiddenByCol = Array(7).fill(null).map(() => []);
     hidden.forEach(p => {
-      for (let c = p.cs; c <= p.ce; c++) hiddenByCol[c]++;
+      for (let c = p.cs; c <= p.ce; c++) {
+        if (!hiddenByCol[c].includes(p.task.id)) hiddenByCol[c].push(p.task.id);
+      }
     });
 
     weeks.push({ rowDates, visible, hiddenByCol, maxLane });
@@ -699,7 +701,7 @@ function renderCalendar() {
   const grid = document.getElementById('calGrid');
   grid.innerHTML = weeks.map(({ rowDates, visible, hiddenByCol, maxLane }) => {
     const displayedLanes = Math.min(maxLane + 1, MAX_VISIBLE_LANES);
-    const hasMore = hiddenByCol.some(n => n > 0);
+    const hasMore = hiddenByCol.some(ids => ids.length > 0);
     const moreRowH = hasMore ? 18 : 0;
     const rowH = DAY_H + displayedLanes * (LANE_H + LANE_GAP) + moreRowH + 8;
 
@@ -794,8 +796,8 @@ function renderCalendar() {
 
     /* "+N개 더" 셀 */
     const moreRow = hasMore ? `<div class="cal-more-row">` +
-      rowDates.map((_, i) => hiddenByCol[i] > 0
-        ? `<div class="cal-more-cell">+${hiddenByCol[i]}개 더</div>`
+      rowDates.map(({ ds }, i) => hiddenByCol[i].length > 0
+        ? `<div class="cal-more-cell clickable" onclick="showDayTaskPopup('${ds}',event)">+${hiddenByCol[i].length}개 더</div>`
         : `<div class="cal-more-cell"></div>`
       ).join('') + `</div>` : '';
 
@@ -1061,6 +1063,45 @@ function saveNote(taskId, date, val) {
     delete task.dailyNotes[date];
   }
   save();
+}
+
+/* ===== 캘린더 날짜 팝업 ===== */
+function showDayTaskPopup(ds, e) {
+  if (e) e.stopPropagation();
+  const dayTasks = state.tasks.filter(t => {
+    const r = getTaskRange(t);
+    return r && r.start <= ds && r.end >= ds;
+  });
+
+  const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+  const d = new Date(ds + 'T00:00:00');
+  const dateLabel = `${ds.slice(0,4)}년 ${parseInt(ds.slice(5,7))}월 ${parseInt(ds.slice(8,10))}일 (${weekDays[d.getDay()]})`;
+
+  document.getElementById('dayPopupDate').textContent = `${dateLabel} · ${dayTasks.length}개`;
+  document.getElementById('dayPopupList').innerHTML = dayTasks.map(t => {
+    const proj  = state.projects.find(p => p.id === t.projectId);
+    const color = proj ? proj.color : '#a29bfe';
+    const over  = isOverdue(t);
+    return `<div class="day-popup-item" onclick="closeDayTaskPopup();openTaskDetail('${t.id}')">
+      <div class="day-popup-dot" style="background:${color}"></div>
+      <div class="day-popup-info">
+        <div class="day-popup-title${t.status==='done'?' day-popup-done':''}">${t.title}</div>
+        <div class="day-popup-meta">
+          <span class="badge badge-status-${t.status}">${statusLabel(t.status)}</span>
+          <span class="badge badge-priority-${t.priority}">${priorityLabel(t.priority)}</span>
+          ${proj ? `<span class="badge badge-project" style="background:${color}22;color:${color}">● ${proj.name}</span>` : ''}
+          ${over ? `<span class="badge" style="background:#ffeaea;color:#ff4757">⚠️ 기한 초과</span>` : ''}
+          ${t.deadline ? `<span style="font-size:11px;color:var(--text-muted)">◀ ${formatDateTime(t.deadline)}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('dayTaskPopup').classList.remove('hidden');
+}
+
+function closeDayTaskPopup() {
+  document.getElementById('dayTaskPopup').classList.add('hidden');
 }
 
 function changeTaskStatus(id, newStatus, e) {
