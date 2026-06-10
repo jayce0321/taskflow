@@ -44,6 +44,7 @@
         <input type="file" id="importFile" accept=".json" hidden />
       </label>
     </div>
+    <button id="pinSettingBtn" class="btn-pin-setting" title="PIN 잠금 설정">🔒 PIN 설정</button>
   </div>
 </aside>
 
@@ -209,6 +210,48 @@
 
 <!-- 배경 오버레이 -->
 <div id="overlay" class="overlay hidden"></div>
+
+<!-- PIN 잠금 화면 -->
+<div id="pinLockScreen" class="pin-lock-screen hidden">
+  <div class="pin-lock-box">
+    <div class="pin-lock-logo">⚡ TaskFlow</div>
+    <p class="pin-lock-title" id="pinLockTitle">비밀번호를 입력하세요</p>
+    <div class="pin-dots" id="pinDots">
+      <span class="pin-dot" data-i="0"></span>
+      <span class="pin-dot" data-i="1"></span>
+      <span class="pin-dot" data-i="2"></span>
+      <span class="pin-dot" data-i="3"></span>
+    </div>
+    <p class="pin-error" id="pinError"></p>
+    <div class="pin-keypad">
+      <button class="pin-key" data-num="1">1</button>
+      <button class="pin-key" data-num="2">2</button>
+      <button class="pin-key" data-num="3">3</button>
+      <button class="pin-key" data-num="4">4</button>
+      <button class="pin-key" data-num="5">5</button>
+      <button class="pin-key" data-num="6">6</button>
+      <button class="pin-key" data-num="7">7</button>
+      <button class="pin-key" data-num="8">8</button>
+      <button class="pin-key" data-num="9">9</button>
+      <button class="pin-key pin-key-empty"></button>
+      <button class="pin-key" data-num="0">0</button>
+      <button class="pin-key pin-key-del" id="pinDelBtn">⌫</button>
+    </div>
+  </div>
+</div>
+
+<!-- PIN 설정 모달 -->
+<div id="pinSetupModal" class="modal hidden">
+  <div class="modal-box small">
+    <div class="modal-header">
+      <h2 id="pinSetupTitle">PIN 잠금 설정</h2>
+      <button class="modal-close" id="closePinSetupModal">✕</button>
+    </div>
+    <div id="pinSetupBody">
+      <!-- JS로 동적 렌더링 -->
+    </div>
+  </div>
+</div>
 
 <!-- 태스크 상세 드로어 -->
 <div id="taskDetailDrawer" class="drawer">

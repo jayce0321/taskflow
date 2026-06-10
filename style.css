@@ -1092,3 +1092,166 @@ body {
 }
 .day-log-textarea:focus { border-color: var(--primary); }
 .day-log-textarea::placeholder { color: #ccc; }
+
+/* ===== PIN 잠금 화면 ===== */
+.pin-lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+.pin-lock-screen.hidden { display: none; }
+
+.pin-lock-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 48px 40px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 24px;
+  backdrop-filter: blur(16px);
+  min-width: 320px;
+}
+
+.pin-lock-logo {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.pin-lock-title {
+  font-size: 15px;
+  color: rgba(255,255,255,0.75);
+  margin: 0;
+}
+
+.pin-dots {
+  display: flex;
+  gap: 18px;
+}
+.pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.5);
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.pin-dot.filled {
+  background: #fff;
+  border-color: #fff;
+  transform: scale(1.15);
+}
+.pin-dot.error {
+  border-color: #ff4757;
+  background: #ff4757;
+}
+
+.pin-error {
+  font-size: 13px;
+  color: #ff6b81;
+  min-height: 18px;
+  text-align: center;
+}
+
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.pin-key {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.08s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pin-key:hover { background: rgba(255,255,255,0.2); }
+.pin-key:active { transform: scale(0.92); background: rgba(255,255,255,0.25); }
+.pin-key-empty { background: transparent !important; cursor: default; }
+.pin-key-del { font-size: 18px; }
+
+/* 흔들기 애니메이션 */
+@keyframes pinShake {
+  0%,100% { transform: translateX(0); }
+  15%     { transform: translateX(-8px); }
+  30%     { transform: translateX(8px); }
+  45%     { transform: translateX(-6px); }
+  60%     { transform: translateX(6px); }
+  75%     { transform: translateX(-3px); }
+  90%     { transform: translateX(3px); }
+}
+.pin-dots.shake { animation: pinShake 0.45s ease; }
+
+/* PIN 설정 버튼 (사이드바) */
+.btn-pin-setting {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(108,99,255,0.12);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: center;
+}
+.btn-pin-setting:hover { background: rgba(108,99,255,0.22); }
+
+/* PIN 설정 모달 내부 */
+.pin-setup-step { display: flex; flex-direction: column; gap: 16px; }
+.pin-setup-mini-dots {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 8px 0;
+}
+.pin-setup-mini-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--primary);
+  background: transparent;
+  transition: background 0.12s;
+}
+.pin-setup-mini-dot.filled { background: var(--primary); }
+.pin-setup-hint { font-size: 13px; color: var(--text-muted); text-align: center; }
+.pin-setup-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.pin-setup-key {
+  aspect-ratio: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.pin-setup-key:hover { background: var(--bg); border-color: var(--primary); }
+.pin-setup-key:active { transform: scale(0.93); }
+.pin-setup-key-empty { border-color: transparent !important; background: transparent !important; cursor: default; }
+.pin-setup-actions { display: flex; gap: 8px; margin-top: 4px; }
+.pin-setup-actions button { flex: 1; }
+.pin-setup-error { font-size: 13px; color: var(--danger); text-align: center; min-height: 18px; }
